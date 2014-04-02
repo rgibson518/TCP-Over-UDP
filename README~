@@ -1,0 +1,17 @@
+Author: Ryan Gibson
+Date: 2/14/2014
+CSE 5462 Network Programming
+Homework 2 Question 1.
+
+
+Compilation: make all
+Clean: make clean
+
+
+To run: Server must be run on Epsilon. Client must be run Eta.  Port and IP address are hard coded in. The server and tcpd do not take any arguments.  The client takes the file name as the argument (e.g. 1.jpg)
+
+Steps.
+Start tcpd in the background.  % tcpd &
+Start the server.  % server
+Start the client with argument.  %client 1.jpg 
+Run diff.  % diff 1.jpg new/1.jpg.

@@ -1,0 +1,182 @@
+/* Example: server.c receiving and sending datagrams on system generated port in UDP */
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include "tcpd.h"
+
+/* server program called with port number to use */
+int main(void) 
+{
+  unsigned int			sockfd, namelen, file_len, buflen;
+  char				cli_buf[MAX_MES_LEN];
+  char				srv_buf[MAX_MES_LEN];
+  size_t                        nbytes_written =0;
+  ssize_t                       nbytes_recv = 0;
+  ssize_t                       nbytes_sent = 0;
+  int                           fidr = 0;
+  unsigned int			connect_s;
+  struct sockaddr_in		name;				// Connection socket descriptor
+  struct sockaddr_in		client_addr;				// Client Internet address
+  struct in_addr		client_ip_addr;				// Client IP address
+  int		     		client_len;					// Internet address length
+  char                          file_name[FILE_NAME_LEN];
+  int                           header;
+  
+  /* NO CHECK ARGS HW2
+     if(argc < 2) {
+     printf("usage: svr port_number\n");
+     exit(1);
+     }
+  */
+  
+  /*create socket*/
+  sockfd = SOCKET(AF_INET, SOCK_STREAM, 0);
+  if(sockfd < 0) {
+    perror("opening datagram socket");
+    exit(1);
+  }
+  
+  /*  lose the pesky "Address already in use" error message (from Beej's)*/
+  int yes=1;
+  if (setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(int)) == -1) {
+    perror("setsockopt");
+    exit(1);
+  } 
+  
+  
+
+  // used to keep socket open longer
+  struct linger so_linger;
+  
+  so_linger.l_onoff = 1;
+  so_linger.l_linger = 30;
+  int z = setsockopt(
+		     sockfd,
+		     SOL_SOCKET,
+		     SO_LINGER,
+		     &so_linger,
+		     sizeof so_linger);
+  
+  if ( z )
+    perror("setsockopt(2)");
+  
+  /* create name with parameters and bind name to socket */
+  memset(&name, '\0', sizeof(name));
+  name.sin_family = AF_INET;
+  name.sin_port = htons(L_PORT);
+  name.sin_addr.s_addr = htonl(INADDR_ANY);
+
+  if(bind(sockfd, (struct sockaddr *)&name, sizeof(name)) < 0) {
+    perror("getting socket name");
+    exit(2);
+  }
+  namelen=sizeof(struct sockaddr_in);
+  
+  //listen(sockfd, 1);
+  // Accept a connection. The accept() will block and then return with
+  // connect_s assigned and client_addr filled-in.
+  client_len = sizeof(client_addr);
+  
+  /* NOT CONNETING HW 2
+     if ((connect_s = accept(sockfd, (struct sockaddr *)&client_addr, &addr_len))==-1){
+     perror("connect");
+     exit(1);
+     }
+     
+     // memcpy(&client_ip_addr, &client_addr.sin_addr.s_addr, 4);
+     //printf("Accept completed!!! IP address of client = %s port = %d \n",inet_ntoa(client_ip_addr), ntohs(client_addr.sin_port));
+     */
+  
+  //ENSURE FULL HEADER IS RECEIVED
+  header = DATA_LEN*2 +FILE_NAME_LEN;
+  
+  nbytes_recv = RECV(sockfd, srv_buf,  MAX_MES_LEN, 0, (struct sockaddr *)&client_addr, (socklen_t *) &client_len);
+  if (nbytes_recv < 0){
+    perror("recv");
+    exit(1);
+  }
+  
+  printf("nbytes_recv:\t%d\n",nbytes_recv);
+  
+  //READ HEADER
+  //get bytes sent
+  memcpy(&buflen, srv_buf, DATA_LEN);
+  printf("1.Bytes recieved:\t%d\n",buflen);
+
+  //read in total file length
+  memcpy(&file_len, srv_buf+DATA_LEN, DATA_LEN);
+  file_len -= FILE_NAME_LEN;
+  printf("File length\t%d\n", file_len);
+
+  //read in file name
+  memcpy(file_name, srv_buf+DATA_LEN+DATA_LEN,FILE_NAME_LEN);
+  printf("File name \t%s\n", file_name);
+  
+  //creating new file path and directory
+  char new_path[FILE_NAME_LEN+sizeof("new/")] = "new/";
+  strcat(new_path, file_name);
+  mkdir("new",S_IRWXU);
+  printf("New path\t%s\n", new_path);  
+  
+  //creating new file
+  if ((fidr = open(new_path, O_CREAT|O_TRUNC|O_WRONLY|O_APPEND,  S_IRWXU)) <0){
+    perror("server :file creat");
+    exit(1);
+  }
+
+  size_t total_written = 0;
+  //file is bigger than one buffer
+  if (file_len >=MAX_MES_LEN){
+    nbytes_written= write(fidr, srv_buf+header, MAX_MES_LEN - header);	
+    total_written += nbytes_written;
+  }
+  //entire file is within this buffer
+  else { 
+    nbytes_written= write(fidr, srv_buf+header, file_len);		
+    total_written += nbytes_written;
+  }
+  //printf("1.Bytes left:\t%d\n", (file_len - total_written));
+  
+  //ensure all bytes are read
+  while (total_written < file_len){
+    
+    //try to get a full buffer
+    if (nbytes_recv = RECV(sockfd, srv_buf , MAX_MES_LEN, 0, (struct sockaddr *)&name, (socklen_t *)&namelen)==-1){
+      perror("recv");
+      exit(1);
+    }
+    
+    //get the nbytes_sent 
+    memcpy(&nbytes_recv, srv_buf, DATA_LEN); 
+    
+    //check to see if there is more in the socket after this buffer
+    if ((file_len - total_written) >=MAX_MES_LEN){
+      nbytes_written= write(fidr, srv_buf+DATA_LEN , MAX_MES_LEN-DATA_LEN);		
+      total_written += nbytes_written;
+      //printf("3.Bytes left:\t%d\n", (file_len - total_written));	
+    }
+    //write the last buffer
+    else {
+      nbytes_written= write(fidr, srv_buf+DATA_LEN , file_len - total_written);		
+      total_written += nbytes_written;
+      //printf("4.Bytes left:\t%d\n", (file_len - total_written));
+    }
+  }
+  
+  //printf("Bytes written\t%d\n", total_written);
+  close(fidr);
+  
+  // CLOSE CONNECTIONS
+  //close(sockfd);
+  // close(connect_s);
+ 
+  return(0);
+}

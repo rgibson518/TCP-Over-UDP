@@ -1,0 +1,24 @@
+Author: Ryan Gibson
+Date: 3/6/2014
+CSE 5462 Network Programming
+
+
+
+Compilation: make all
+Clean: make clean
+
+
+To run: Server must be run on Epsilon. Client must be run Eta.  Port and IP address are hard coded in. The server and tcpd do not take any arguments.  The client takes the file name as the argument (e.g. 1.jpg)
+
+Steps.
+You will need 3 terminal shells to run this code. 2 on Epsilon and 1 on Eta
+Start tcpd in the background on both servers(eta and epsilon).  
+	% tcpd &
+Start the server on epsilon in one shell.  
+	% server
+Start the troll on epsilon in the other shell.
+	%troll -r -S 164.107.112.71 -C 164.107.112.73 -a 15001 -b 15001 20001
+Start the client with file path on eta.  
+	%client 1.jpg 
+Run diff.  
+	% diff 1.jpg new/1.jpg.
