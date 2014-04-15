@@ -83,7 +83,16 @@ int main(void)
 	  perror("recv");
 	  exit(1);
 	}
+
+	//determine the type of request (CONNECT/ACCEPT/SHUTDOWN/DATA/)
 	
+	//respond request
+
+	// if connecting to other daemon, 
+	//add to buffer
+	//send available window
+	
+
 	if (set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, T_PORT) == -1){
 	  perror("tcpd: set_fwd_addr");
 	  exit(1);
@@ -106,6 +115,11 @@ int main(void)
 	  exit(1);
 	}
 
+
+	//Read header flag
+	
+	//if ACK slide the window
+	
 	printf("TCPD: received from remote:\t%d\n",nbytes_recv);
 	
 	checksum_r = *(uint16_t*)(buf+nbytes_recv-CHKSUM_LEN);
