@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include "header.h"
+
 #ifndef TCPD_H
 #define TCPD_H
 
@@ -27,34 +29,6 @@
 #define CHKSUM_LEN 2
 
 #define TARGET_DIR "new/" 
-
-#define FIN 1
-#define SYN 2
-#define RST 4
-#define PSH 8
-#define ACK 16
-#define URG 32
-#define ECE 64
-#define CRW 128
-
-#define NS 1
-
-
-typedef struct 
-{
-    uint16_t s_port; 
-    uint16_t d_port;
-    uint32_t seq_num;
-    uint32_t ack_num;
-    unsigned char data_offset;
-    unsigned char res_plus_ns;
-    uint8_t flags;
-    uint16_t win_size; 
-    uint16_t checksum; 
-    uint16_t urg_ptr;
-    uint32_t opts[10]; //not sure if we need ops.. but could.
-}header;
-
 
 int SOCKET(int family, int type, int protocol){
   
