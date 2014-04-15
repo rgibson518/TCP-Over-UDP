@@ -10,7 +10,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "tcpd.h"
+#include "tcp/tcpd.h"
 
 /* server program called with port number to use */
 int main(void) 

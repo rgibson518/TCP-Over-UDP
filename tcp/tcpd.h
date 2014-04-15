@@ -46,14 +46,14 @@ typedef struct
     uint16_t d_port;
     uint32_t seq_num;
     uint32_t ack_num;
-    uint4_t data_offset;
-    uint4_t res_plus_ns;
+    unsigned char data_offset;
+    unsigned char res_plus_ns;
     uint8_t flags;
-    uint16_t s_port; 
-    uint16_t s_port; 
-    uint16_t s_port; 
-    
-}
+    uint16_t win_size; 
+    uint16_t checksum; 
+    uint16_t urg_ptr;
+    uint32_t opts[10]; //not sure if we need ops.. but could.
+}header;
 
 
 int SOCKET(int family, int type, int protocol){

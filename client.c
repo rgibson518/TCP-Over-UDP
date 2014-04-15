@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "tcpd.h"
+#include "tcp/tcpd.h"
 
 void set_header(char* cli_buf, char* arg);
 
