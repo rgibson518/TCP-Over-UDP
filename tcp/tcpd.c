@@ -16,6 +16,22 @@
 
 #include "tcpd.h"
 
+typedef enum 
+  {
+    LISTEN,
+    SYNSENT, 
+    SYNREC, 
+    CLOSING,
+    ESTABLISHED,
+    FINWAIT1,
+    FINWAIT2,
+    TIMEWAIT,
+    CLOSEWAIT,
+    LASTACK,
+    CLOSED    
+  } state;
+state connection = NOTCONNECTED;
+
 // Prototypes
 int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port);
 int set_fwd_addr(struct sockaddr_in in_addr, int in_addrlen,
@@ -79,74 +95,174 @@ int main(void)
     // receive from local
     if (FD_ISSET(l_sockfd, &read_fd_set))
       {
-	if ((nbytes_recv = recvfrom(l_sockfd, buf , MAX_MES_LEN, 0, (struct sockaddr *)&recv_addr, &recv_len))==-1){
-	  perror("recv");
-	  exit(1);
-	}
+	
+	if (connection == LISTEN) 
+	  {
+	    // waiting for a connection request from local host
+	    // send SYN to other daemon
+	    // set state to SYNSENT
+	  } 
+	
+	else if (connection == ESTABLISHED)
+	  {
+	    // ensure buffer has room
+	    // put information in the buffer
 
-	//determine the type of request (CONNECT/ACCEPT/SHUTDOWN/DATA/)
-	
-	//respond request
+	    /* if size is bytes received is 0
+	       // send remaining buffer and wait for acks	       
+	       // send FIN
+	       // change state to FINWAIT1
+	      */
 
-	// if connecting to other daemon, 
-	//add to buffer
-	//send available window
-	
+	    // Send all of the window that can be sent
+	  }
+	else if (connection == CLOSEWAIT) 
+	  {
+	    /* Close from the local host
+	       //send FIN
+	       state = LASTACK
+	    */
+	  }
 
-	if (set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, T_PORT) == -1){
-	  perror("tcpd: set_fwd_addr");
-	  exit(1);
-	}
-	
-	checksum = calc_checksum(buf,nbytes_recv);
-	memcpy(buf+nbytes_recv, &checksum, CHKSUM_LEN);
-	printf("TCPD:Local sent checksum:\t%x\n",checksum);
-	
-	//printf("Daemon: forwarded data to TROLL.\n");
-	// forward buffer to the remote
-	sendto(r_sockfd, buf, MAX_MES_LEN+CHKSUM_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
-	
+	/*  THIS BLOCK OF CODE WILL GO IN CONNECTED AT SOME POINT 
+	    if ((nbytes_recv = recvfrom(l_sockfd, buf , MAX_MES_LEN, 0, (struct sockaddr *)&recv_addr, &recv_len))==-1){
+	    perror("recv");
+	    exit(1);
+	    }
+	    
+	    if (set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, T_PORT) == -1){
+	    perror("tcpd: set_fwd_addr");
+	    exit(1);
+	    }
+	    
+	    checksum = calc_checksum(buf,nbytes_recv);
+	    memcpy(buf+nbytes_recv, &checksum, CHKSUM_LEN);
+	    printf("TCPD:Local sent checksum:\t%x\n",checksum);
+	    
+	    //printf("Daemon: forwarded data to TROLL.\n");
+	    // forward buffer to the remote
+	    sendto(r_sockfd, buf, MAX_MES_LEN+CHKSUM_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+	*/
       }
+    
     // receive from remote
     if (FD_ISSET(r_sockfd, &read_fd_set))
       {
-      	if ((nbytes_recv = recvfrom(r_sockfd, buf , MAX_MES_LEN+CHKSUM_LEN, 0, (struct sockaddr *)&recv_addr, (socklen_t *)&recv_len))==-1){
-	  perror("recv");
-	  exit(1);
-	}
+      	
+	if (connection == LISTEN) 
+	  {
+	    // waiting for a connection request from other daemon
+	    // send SYN,ACK back to other daemon
+	    // set state to SYNREC
+	  } 
+	else if (connection == SYNREC)
+	  {
+	    // waiting for an ACK
+	    /* if remote is sending data then ACK is implicit
+	      
+	       NOTE IT IS POSSIBLE TO RECEIVE DATA BEFORE THE ACK 
+	       SO THIS CASE NEEDS HANDLED
+	       // 
+	       // change state to ESTABLISHED
+	       // process the data
+	     
+	    */
+       
+	    /* if an ACK was received
+	       // process ACK
+	       // change state to ESTABLISHED
+	    */
+	  
+	  }
+	else if (connection == SYNSENT)
+	  {
+	    /* if an SYN,ACK was received
+	       // process ACK
+	       // send ACK to other daemon
+	       // change state to ESTABLISHED 
+	       */
+	  }
 
-
-	//Read header flag
+	else if (connection == ESTABLISHED)
+	  {
+	    //waiting for data, but could be ACK to SYN,ACK
+	    /* if ACK disregard because already 
+	       received data if in ESTABLISHED
+	    */
+	    
+	    /* check flags for FIN
+	       // send ACK
+	       // state = CLOSEWAIT
+	    */
+	    
+	    /* received data
+	       // process the data
+	    */
+	    
+	  }
+	else if (connection == LASTACK)
+	  {
+	    /*
+	       // process the ACK
+	       // state = CLOSED
+	    */
+	  } 	
+	else if (connection == FINWAIT1)
+	  {
+	    /*
+	       // process the ACK
+	       // state = FINWAIT2
+	    */
+	  } 
+	else if (connection == FINWAIT2)
+	  {
+	    /*
+	       // process the FIN
+	       // state = TIMEWAIT
+	       // NOTE CONNECTION DIES AFTER 2 mins or 2*MSL (Maximum Segment Lifetiem)
+	    */
+	  } 
+	else
+	  {
+	    //shouldn't be possible
+	    //throw some kind of error message
+	  }
+	/*  THIS BLOCK WILL BE INCORPORATED LATER 
+	    if ((nbytes_recv = recvfrom(r_sockfd, buf , MAX_MES_LEN+CHKSUM_LEN, 0, (struct sockaddr *)&recv_addr, (socklen_t *)&recv_len))==-1){
+	    perror("recv");
+	    exit(1);
+	    }
+	    
+	    
+	    
+	    printf("TCPD: received from remote:\t%d\n",nbytes_recv);
+	    
+	    checksum_r = *(uint16_t*)(buf+nbytes_recv-CHKSUM_LEN);
+	    checksum = calc_checksum(buf, nbytes_recv);
+	    printf("TCPD:Remote checksum calculated:\t%x\n",checksum);
+	    
+	    if (checksum){
+	    printf("Checksums did not match(rec:calc):\t%d:%d\n",checksum_r,checksum);
+	    }
+	    
+	    if (set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, L_PORT) == -1){
+	    perror("tcpd: set_fwd_addr");
+	    exit(1);
+	    }
+	    
+	    //printf("Daemon: forwarded data to LOCAL.\n");
+	    // forward buffer to the remote
+	    sendto(l_sockfd, buf, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+	    
+	    }
+	*/
 	
-	//if ACK slide the window
-	
-	printf("TCPD: received from remote:\t%d\n",nbytes_recv);
-	
-	checksum_r = *(uint16_t*)(buf+nbytes_recv-CHKSUM_LEN);
-	checksum = calc_checksum(buf, nbytes_recv);
-	printf("TCPD:Remote checksum calculated:\t%x\n",checksum);
-	
-	if (checksum){
-	   printf("Checksums did not match(rec:calc):\t%d:%d\n",checksum_r,checksum);
-	   }
-
-	if (set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, L_PORT) == -1){
-	  perror("tcpd: set_fwd_addr");
-	  exit(1);
-	}
-
-	//printf("Daemon: forwarded data to LOCAL.\n");
-	// forward buffer to the remote
-	sendto(l_sockfd, buf, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 	
       }
-    
-    
+  
+    return(1);
   }
   
-  return(1);
-}
-
 
 int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port)
 {

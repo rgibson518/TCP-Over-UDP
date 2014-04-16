@@ -15,7 +15,7 @@
 /* server program called with port number to use */
 int main(void) 
 {
-  unsigned int sockfd, addrlen, file_len, buflen;
+  unsigned int sockfd, file_len, buflen;
   char cli_buf[MAX_MES_LEN];
   char srv_buf[MAX_MES_LEN];
   size_t nbytes_written = 0;
@@ -25,9 +25,10 @@ int main(void)
   int fidr = 0;
   unsigned int connect_s;
   struct sockaddr_in addr; //Connection socket descriptor
+  socklen_t addrlen;
   struct sockaddr_in client_addr; //Client Internet address
   struct in_addr client_ip_addr; //Client IP address
-  int client_addr_len; // Internet address length
+  socklen_t client_addr_len; // Internet address length
  
   
   int header_len = FILE_NAME_LEN + DATA_LEN;
