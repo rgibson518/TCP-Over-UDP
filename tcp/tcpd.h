@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -20,7 +21,6 @@
 
 #define S_ADDR "164.107.112.71"  //epsilon.cse.ohio-state.edu
 #define C_ADDR "164.107.112.73"  //eta.cse.ohio-state.edu
-
 #define DATA_LEN 4
 #define FILE_NAME_LEN 20
 #define MAX_MES_LEN 1000
@@ -30,48 +30,71 @@
 
 #define TARGET_DIR "new/" 
 
-int SOCKET(int family, int type, int protocol){
-  
-  return socket(family, SOCK_DGRAM, protocol);
+
+/*=========== GLOBAL VARIABLES=================*/
+
+
+
+struct sockaddr_in tcpd_addr;
+socklen_t tcpd_addr_len;
+
+
+
+
+/*=========== HELPER METHODS==================*/
+
+
+void build_addr()
+{
+    tcpd_addr_len = sizeof(struct sockaddr_in);
+    memset(&tcpd_addr, '\0', sizeof(tcpd_addr));
+    tcpd_addr.sin_family = AF_INET;
+    tcpd_addr.sin_port = htons(L_PORT);
+    tcpd_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 }
 
-int BIND(int sockfd, struct sockaddr *myaddr, int addrlen)
-{
+/* For this project, we will use a buf of 0 to send req/acks betwen the 
+   client/server and daemon.  The intent in derived from the state of the
+   connection on the daemon.*/
+
+int wait_for_ack(int sockfd) 
+{    
+    char buf[PAYLOAD];
+    int nbytes_recv;
     
-  return bind(sockfd, myaddr, addrlen);
+    build_addr();
+    
+    // block the process until we get an ack from the tcpd
+    nbytes_recv = recvfrom(sockfd, buf, PAYLOAD, 0,(struct sockaddr*) &tcpd_addr, &tcpd_addr_len);
+    
+    //Signal failed and let the client/server handle the error.
+    if (nbytes_recv != 0)
+    {
+	return -1;
+    }
+    // Successful connection
+    else 
+    {
+	return 0;
+    }
+    
 }
 
-int ACCEPT(int sockfd, void *peer, int *addrlen)
+
+/* Send an empty buffer to TCPD to signal a request
+ */
+int send_req(int sockfd)
 {
-    //wait for connection request from TCPD
-  return 0;
+    char* buf;
+    int nbytes_sent;
+    
+    build_addr();
+    
+    // block the process until we get an ack from the tcpd
+    nbytes_sent = sendto(sockfd, buf, 0, 0,(struct sockaddr*)&tcpd_addr, tcpd_addr_len);
+    return nbytes_sent;
 }
 
-int CONNECT(int sockfd, struct sockaddr *serv_addr, int addrlen)
-{
-    //request connection from TCPD
-    return 0;
-}
-
-int SEND(int sockfd, const void *msg, int len, int flags, 
-	 const struct sockaddr *to, int tolen)
-{
-    //sleep 10 milliseconds between sends
-    usleep(10000);
-    return sendto(sockfd, msg, len, flags, to, tolen);
-}
-
-int RECV(int sockfd, void *buf, size_t  len, int flags,
-	 struct sockaddr *from, socklen_t  *fromlen)
-{
-    return  recvfrom(sockfd, buf, len, flags,from, fromlen);
-}
-
-int CLOSE(int sockfd)
-{
-    //send close to TCPD 
-    return close(sockfd);
-}
 
 unsigned short calc_checksum(char* buf, uint32_t buf_len)
 {
@@ -85,7 +108,7 @@ unsigned short calc_checksum(char* buf, uint32_t buf_len)
 	
 	checksum <<= 1;
 	checksum |= (*buf >> i) & 1;
-		
+	
 	i++;
 	if(i > 7)
 	{
@@ -118,4 +141,95 @@ unsigned short calc_checksum(char* buf, uint32_t buf_len)
     return crc;
     }
 
+
+
+
+/*========== TCP CONVERSION METHODS==========*/
+
+
+
+/*  Since we're not really using a TCP, we need to change this to a 
+    SOCK_DGRAM for UDP 
+*/
+int SOCKET(int family, int type, int protocol){
+    
+    
+    return socket(family, SOCK_DGRAM, protocol);
+}
+
+/* Doesn't really change I don't think.
+ */
+int BIND(int sockfd, struct sockaddr *myaddr, int addrlen)
+{
+    
+    return bind(sockfd, myaddr, addrlen);
+}
+
+/* Just wait for a connection by waiting for an ack
+ */
+int ACCEPT(int sockfd, void *peer, socklen_t *addrlen)
+{
+    if (wait_for_ack(sockfd) ==0)
+    {
+	peer = &tcpd_addr;
+	addrlen = &tcpd_addr_len;
+	return sockfd;
+    }
+    else 
+    {
+	return -1;
+    }
+}
+
+/* Establish a connection by sending request and waiting for ack
+ */
+int CONNECT(int sockfd, struct sockaddr *serv_addr, int addrlen)
+{
+    send_req(sockfd);
+    
+    //wait for acknowledgement of connection
+    return wait_for_ack(sockfd);
+}
+
+/* Send TCP over UDP, adding wait to slow down process
+ */
+int SEND(int sockfd, const void *msg, int len, int flags, 
+	 const struct sockaddr *to, socklen_t tolen)
+{
+    //sleep 10 milliseconds between sends
+    usleep(10000);
+    return sendto(sockfd, msg, len, flags, to, tolen);
+}
+		 
+/* Conversion from TCP to UDP
+ */
+int RECV(int sockfd, void *buf, size_t  len, int flags,
+	 struct sockaddr *from, socklen_t  *fromlen)
+{
+    return  recvfrom(sockfd, buf, len, flags,from, fromlen);
+}
+
+/*Send close to TCPD
+ */
+int CLOSE(int sockfd)
+{
+    //trigger close in daemon
+    send_req(sockfd);
+
+    //ensure daemon cleaned up everything
+    if (wait_for_ack(sockfd)==0)
+    {
+	//close out socket
+	return  close(sockfd);
+    } 
+    else 
+    {
+	return -1;
+    }
+}
+
+		 
+		 
+		 
 #endif
+		 
