@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "header.h"
+#include "pdu.h"
 
 #ifndef TCPD_H
 #define TCPD_H

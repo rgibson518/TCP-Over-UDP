@@ -21,11 +21,12 @@ typedef struct header
     uint16_t d_port;
     uint32_t seq_num;
     uint32_t ack_num;
-    uint8_t data_res__ns;
+    //data reserved and ns are all on the same int
+    uint8_t data_res_ns;
     uint8_t flags;
-    uint16_t win_size; 
-    uint16_t checksum; 
-    uint16_t urg_ptr;
+    uint16_t win; 
+    uint16_t chk; 
+    uint16_t urg;
     //    uint32_t opts[10]; //not sure if we need ops.. but could.
 }header;
 
