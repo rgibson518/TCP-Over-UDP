@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <stdint.h>
 
 #ifndef HEADER_H
 #define HEADER_H

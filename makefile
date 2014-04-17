@@ -9,7 +9,7 @@ server: server.c tcp/tcpd.h
 	gcc -o server server.c
 
 tcpd: tcp/tcpd.c tcp/tcpd.h
-	gcc -o tcpd tcp/tcpd.c
+	gcc -o tcpd tcp/tcpd.c -lm -lpthread
 
 .PHONY: clean
 clean: 

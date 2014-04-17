@@ -9,7 +9,7 @@
 typedef struct pdu
 {
     header h;
-    char d[PAYLOAD];
+    char data[PAYLOAD];
 }pdu;
 
 #endif

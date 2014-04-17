@@ -27,6 +27,7 @@
 
 #define CRC_POLY 0x8005
 #define CHKSUM_LEN 2
+#define WINDOW_SIZE 20
 
 #define TARGET_DIR "new/" 
 
