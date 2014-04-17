@@ -38,6 +38,19 @@ void sw_init(sliding_window *win, circular_buffer *cb)
 //**************************************WINDOW MANAGEMENT******************************
 
 /*
+Pseudocode for markPDUAcked( int seqNumber)
+	index = (calculate which frame is being acked, by comparing seqNumber to window head sequence Number)
+	
+	Set Window-> packet_acks[index] to 1
+*/
+
+void markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb){
+	int pdu_index_in_window = seqNumber - sw->head_sequence_num;
+	
+	sw->packet_acks[pdu_index_in_window] = 1;
+}
+
+/*
 Pseudocode for update window (*sliding window, *circularbuf, which is to be called whenever an ack is received and the pdu is marked
 
 		*Before trying to move the head or do anything with the pdu there,
@@ -82,8 +95,10 @@ void update_window(sliding_window *sw, circular_buffer *cb){
 				frame_acked = sw->packet_acks[i];	
 			}
 		}
+}
 
-	while ( sw->count < sw->capacity && sw->tail != cb->tail){
+void send_available_packets(sliding_window *sw, circular_buffer *cb){
+		while ( sw->count < sw->capacity && sw->tail != cb->tail){
 		/*
 		TODO  SEND PDU IN FRONT OF TAIL
 		*/
@@ -92,21 +107,35 @@ void update_window(sliding_window *sw, circular_buffer *cb){
 		progress_window_tail(sw,cb);
 		sw->count++;
 	}
-	
 }
 
- 
-/*
-Pseudocode for markPDUAcked( int seqNumber)
-	index = (calculate which frame is being acked, by comparing seqNumber to window head sequence Number)
+ /*
+Pseudo for addding pdu to buffer (circular_buffer *cb, const *PDU)
+	if count = 64, then error - cannot add another
 	
-	Set Window-> packet_acks[index] to 1
+	memcpy(cb->tail, PDU, 1000*sizeof(char))   //hard coding copying 1000 bytes from PDU into buffer right now.
+									//Might need some sort of handling like adding an end symbol
+									//if data does not take up entire alloted space, so that receiver knows when to stop
+	cb->tail = (char *) cb->tail + 1000*sizeof(char)
+	if (cb->tail == cb-> end)
+		cb->tail = cb-> buffer
+	cb-> count ++
 */
 
-void markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb){
-	int pdu_index_in_window = seqNumber - sw->head_sequence_num;
+void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet){
+	if (cb->count == cb->capacity) {
+		fprintf(stderr,"Buffer is Full");
+		exit();
+	}
 	
-	sw->packet_acks[pdu_index_in_window] = 1;
+	int buffer_tail = cb->tail;
+	memcpy(cb->buffer[buffer_tail], packet, sizeof(pdu));
+	progress_buffer_tail(cb);
+	cb->count++;
+}
+
+void progress_buffer_tail(circular_buffer *cb){
+	cb->tail = (cb->tail +1)%(cb->capacity);
 }
 
 
@@ -142,35 +171,7 @@ void progress_heads(sliding_window *sw,circular_buffer *cb){
 	sw->head_sequence_number ++; // or plus 1000, depending on our decision
 }
 
-//**********************************************BUFFER MANAGEMENT*************************
 
-/*
-Pseudo for addding pdu to buffer (circular_buffer *cb, const *PDU)
-	if count = 64, then error - cannot add another
-	
-	memcpy(cb->tail, PDU, 1000*sizeof(char))   //hard coding copying 1000 bytes from PDU into buffer right now.
-									//Might need some sort of handling like adding an end symbol
-									//if data does not take up entire alloted space, so that receiver knows when to stop
-	cb->tail = (char *) cb->tail + 1000*sizeof(char)
-	if (cb->tail == cb-> end)
-		cb->tail = cb-> buffer
-	cb-> count ++
-*/
 
-void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet){
-	if (cb->count == cb->capacity) {
-		fprintf(stderr,"Buffer is Full");
-		exit();
-	}
-	
-	int buffer_tail = cb->tail;
-	memcpy(cb->buffer[buffer_tail], packet, sizeof(pdu));
-	progress_buffer_tail(cb);
-	cb->count++;
-}
-
-void progress_buffer_tail(circular_buffer *cb){
-	cb->tail = (cb->tail +1)%(cb->capacity);
-}
 
 
