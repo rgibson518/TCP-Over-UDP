@@ -17,8 +17,8 @@ int main(int argc, char *argv[])
 {
   int sockfd, addrlen, buflen, fido, file_len, nbytes_read, nbytes_sent, nbytes_recv;
   int header_len = DATA_LEN+FILE_NAME_LEN;
-  char cli_buf[MAX_MES_LEN];
-  char srv_buf[MAX_MES_LEN];
+  char cli_buf[PAYLOAD];
+  char srv_buf[PAYLOAD];
   struct sockaddr_in addr;
   struct sockaddr_in srv_addr;
   int srv_len;
@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     printf("usage: file path requiredr\n");
     exit(1);
   }
+  
   printf("File name \t%s\n", argv[1]);
   
   /* create socket for connecting to server */
@@ -45,15 +46,16 @@ int main(int argc, char *argv[])
  
   addrlen = sizeof(struct sockaddr_in);
   
-  /* TODO: Implement CONNECT()
-  //attempt connection
-  if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) ==-1){
-  close(sockfd);cl
-  perror("client:connect");
-  exit(1);
-  }
- */
-    
+  
+  //attempt connectio
+  
+  if (CONNECT(sockfd, (struct sockaddr *)&addr, sizeof(addr)) ==-1)
+    {
+      close(sockfd);
+      perror("client:connect");
+      exit(1); 
+    }
+  
   //open the file
   if ((fido = open(argv[1], O_RDONLY)) <0){
    close(sockfd);
@@ -78,12 +80,12 @@ int main(int argc, char *argv[])
   file_len += FILE_NAME_LEN;
   
   //add header to buffer
-  memset(cli_buf, '\0', MAX_MES_LEN);
+  memset(cli_buf, '\0', PAYLOAD);
   memcpy(cli_buf, &file_len, DATA_LEN);
   memcpy(cli_buf+DATA_LEN, argv[1], FILE_NAME_LEN);
   
   //read file into headered buffer
-  nbytes_read = read(fido, cli_buf+header_len, MAX_MES_LEN - header_len); 
+  nbytes_read = read(fido, cli_buf+header_len, PAYLOAD - header_len); 
   buflen = nbytes_read + header_len;
   
   int total_sent = 0;
@@ -98,7 +100,7 @@ int main(int argc, char *argv[])
       total_sent = total_sent + nbytes_sent;
     } 
     //read remaining chunks into headerless buffer
-    nbytes_read = read(fido, cli_buf, MAX_MES_LEN); 
+    nbytes_read = read(fido, cli_buf, PAYLOAD); 
     //sleep(1);
   }
   printf ("Sending complete.\n");

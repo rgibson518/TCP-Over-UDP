@@ -97,7 +97,7 @@ int send_req(int sockfd)
 }
 
 
-unsigned short calc_checksum(char* buf, uint32_t buf_len)
+uint16_t calc_checksum(char* buf, uint32_t buf_len)
 {
     uint16_t checksum = 0;
     int i = 0;
@@ -186,10 +186,7 @@ int ACCEPT(int sockfd, void *peer, socklen_t *addrlen)
  */
 int CONNECT(int sockfd, struct sockaddr *serv_addr, int addrlen)
 {
-    send_req(sockfd);
-    
-    //wait for acknowledgement of connection
-    return wait_for_ack(sockfd);
+    return 0;
 }
 
 /* Send TCP over UDP, adding wait to slow down process

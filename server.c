@@ -16,8 +16,8 @@
 int main(void) 
 {
   unsigned int sockfd, file_len, buflen;
-  char cli_buf[MAX_MES_LEN];
-  char srv_buf[MAX_MES_LEN];
+  char cli_buf[PAYLOAD];
+  char srv_buf[PAYLOAD];
   size_t nbytes_written = 0;
   size_t total_written = 0;
   ssize_t nbytes_recv = 0;
@@ -88,13 +88,14 @@ int main(void)
   // memcpy(&client_ip_addr, &client_addr.sin_addr.s_addr, 4);
   //printf("Accept completed!!! IP address of client = %s port = %d \n",inet_ntoa(client_ip_addr), ntohs(client_addr.sin_port));
  */
-  
+  printf("Waiting for connection...\n");
   //ensure full header is received  
-  while ((nbytes_recv += RECV(sockfd, srv_buf+nbytes_recv,  MAX_MES_LEN-nbytes_recv, 0, (struct sockaddr *)&client_addr, (socklen_t *) &client_addr_len)) < header_len);
+  while ((nbytes_recv += RECV(sockfd, srv_buf+nbytes_recv,  PAYLOAD-nbytes_recv, 0, (struct sockaddr *)&client_addr, (socklen_t *) &client_addr_len)) < header_len);
   if (nbytes_recv < 0){
     perror("recv");
     exit(1);
   }
+  printf("Connected.");
   printf("Server: nbytes_recv:\t%d\n",nbytes_recv);
   
   //read in total file length
@@ -116,7 +117,7 @@ int main(void)
     perror("server :file creat");
     exit(1);
   }
-
+  
   nbytes_written = write(fidr, srv_buf + header_len, nbytes_recv - header_len);	
   total_written += nbytes_written;
   
@@ -125,13 +126,21 @@ int main(void)
   while (total_written < file_len){
     
     //try to get a full buffer
-    if ((nbytes_recv = RECV(sockfd, srv_buf , MAX_MES_LEN, 0, (struct sockaddr *)&addr, (socklen_t *)&addrlen)) == -1){
+    if ((nbytes_recv = RECV(sockfd, srv_buf , PAYLOAD, 0, (struct sockaddr *)&addr, (socklen_t *)&addrlen)) == -1){
       perror("recv");
       exit(1);
     }
-    
-    nbytes_written = write(fidr, srv_buf , nbytes_recv);		
-    total_written += nbytes_written;
+    if (nbytes_recv < (file_len - total_written)) 
+      {
+	nbytes_written = write(fidr, srv_buf , nbytes_recv);		
+	total_written += nbytes_written;
+      }
+    else 
+      {
+	nbytes_written = write(fidr, srv_buf , (file_len - total_written));		
+	total_written += nbytes_written;
+      }
+	
   }
   
   

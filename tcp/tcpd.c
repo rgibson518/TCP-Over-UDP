@@ -104,7 +104,7 @@ int main(void)
 	  exit(1);
 	} 
     }
-
+  printf("Threads joined.\n");
 }
 
 
@@ -163,6 +163,7 @@ void set_fwd_addr(struct sockaddr_in in_addr, int  in_addrlen, struct sockaddr_i
  */
 void* local_listen(void *arg)
 {
+  printf("Local listen created.\n");
   char local_buf[PAYLOAD];
   uint32_t local_buflen;
   struct sockaddr_in recv_addr;
@@ -177,17 +178,21 @@ void* local_listen(void *arg)
       //clear pdu
       memset(&p, 0x00, sizeof(pdu));
       
-      // wait for next buffer
-      if ((local_recv = recvfrom(l_sockfd, local_buf , PAYLOAD , 0, (struct sockaddr *)&recv_addr, &recv_len)) < 0)
+      // 
+      local_recv = recvfrom(l_sockfd, local_buf , PAYLOAD , 0, (struct sockaddr *)&recv_addr, &recv_len);
+      if (local_recv < 0)
 	{
 	  perror("TCPD local:  recvfrom error");
 	  exit(1);
 	}
+      
       // pack buffer into pdu
-      build_pdu(&p,&seq, NULL , local_buf, local_recv);
-      p.h.chk = calc_checksum((char*)&p, sizeof(pdu));
+      build_pdu(&p,&seq, NULL , local_buf, PAYLOAD);
+      
+      p.h.chk = calc_checksum((char*)&p, MAX_MES_LEN);
+      
       set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, R_PORT);
-      local_sent = sendto(r_sockfd, (char*)&p, sizeof(pdu), 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      local_sent = sendto(r_sockfd, (char*)&p, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
     }
 }
 
@@ -196,6 +201,8 @@ void* local_listen(void *arg)
  */
 void* remote_listen(void *arg)
 {
+    printf("Local remote created.\n");
+  
   char remote_buf[MAX_MES_LEN];
   uint32_t remote_buflen;
   struct sockaddr_in recv_addr;
@@ -214,15 +221,19 @@ void* remote_listen(void *arg)
 	  perror("recv");
 	  exit(1);
 	}
-     memcpy(&p, &remote_buf, MAX_MES_LEN);
-     int checksum = calc_checksum(remote_buf, remote_recv);
-     if (checksum)
-       {
-	 printf("Checksums did not match(rec:calc):\t%d:%d\n",p.h.chk, checksum);
-       }
-     
-     set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, L_PORT) ;      
-      remote_sent = sendto(l_sockfd, p.data, remote_recv-sizeof(header), 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      printf("Bytes received:\t%i\n", remote_recv);
+      memcpy(&p, &remote_buf, MAX_MES_LEN);
+      uint16_t r_checksum =  p.h.chk;
+      uint16_t checksum;
+      memset(&p.h.chk, 0x00, sizeof(p.h.chk));
+      checksum = calc_checksum((char*)&p, MAX_MES_LEN);
+      if (checksum)
+	{
+	  printf("Checksums did not match(rec:calc):\t%d:%d\n", r_checksum, checksum);
+	}
+      
+      set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, L_PORT) ;      
+      remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
     }
 }
 
