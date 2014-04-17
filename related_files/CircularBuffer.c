@@ -1,24 +1,39 @@
 typedef struct circular_buffer
 {
-    void *buffer;     // data buffer
-    void *buffer_end; // end of data buffer
-	size_t count;  		//number of pdu's in buffer
-    void *head;       // pointer to head
-    void *tail;       // pointer to tail
+    char buffer[64][1000];     // data buffer
+	unsigned int count;  		//number of pdu's in buffer
+	unsigned int capacity;
+    int head;       // pointer to head
+	int tail;       // pointer to tail
 } circular_buffer;
 
 typedef struct sliding_window
 {
-    void *head;       // pointer to head pdu
+    int head;       // index of head pdu
 	unsigned int head_sequence_num;
-	//void *current;		//(???Maybe not)pointer to pdu currently being used
-    void *tail;       // pointer to tail pdu
+    int tail;       // index of tail pdu
 	
-	size_t count;		//number of pdu's in window
-	size_t capacity;
+	unsigned int count;		//number of pdu's in window
+	unsigned int capacity;
 	int packet_acks[20];
 } sliding_window;
 
+void cb_init(circular_buffer *cb)
+{
+	cb->head = 0;
+	cb->tail = 0;
+	cb->capacity = 64;
+	cb->count = 0;
+}
+
+void sw_init(sliding_window *win, circular_buffer *cb)
+{
+	win->head = cb->head;
+	win->tail = cb->head;	
+	win->count = 0;
+	win->capacity = 20;
+	win->packet_acks = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+}
 
 //**************************************WINDOW MANAGEMENT******************************
 
@@ -30,15 +45,14 @@ Pseudocode for update window (*sliding window, *circularbuf, which is to be call
 
 
 		set int initial count to window count
-		while int i (= 0) and less than initial count AND head frame not unacked AND window head is not at buffer tail AND window head is not at window tail
-			if packet_acks[i] == 1	
-				progress head of window (FUNCTION)
+		set frame acked to value in index 0 of packet_acks
+		while int i (= 0) and less than initial count AND frame is acked AND window head is not at buffer tail AND window head is not at window tail
+				progress heads of window and buffer(FUNCTION)
 				decrement window->count
+				decrement buffer->count
 				set packet_acks[i] = 0
 				i ++;
-				progress head of buffer (FUNCTION)
-				decrement buffer->count
-			endif
+				frame acked = packet_acks[i]
 		endwhile
 	
 		*Before moving the tail, this checks that the window can be expanded and also checks
@@ -52,13 +66,49 @@ Pseudocode for update window (*sliding window, *circularbuf, which is to be call
 		endwhile	
 	
 */
+void update_window(sliding_window *sw, circular_buffer *cb){
+	unsigned int initial_window_count = sw->count;
+	int i = 0;
+	int frame_acked = sw->packet_acks[0];
+	
+	while (i < initial_window_count && frame_acked == 1 && sw->head != cb->tail && sw->head != sw->tail){
+			
+			progress_heads(sw, cb);
+			sw->count --;
+			cb->count --;
+			sw->packet_acks[i] = 0;
+			i++;
+			if (i < 20){
+				frame_acked = sw->packet_acks[i];	
+			}
+		}
 
+	while ( sw->count < sw->capacity && sw->tail != cb->tail){
+		/*
+		TODO  SEND PDU IN FRONT OF TAIL
+		*/
+		int window_count = sw->count;
+		sw->packet_acks[window_count] == 0;
+		progress_window_tail(sw,cb);
+		sw->count++;
+	}
+	
+}
+
+ 
 /*
 Pseudocode for markPDUAcked( int seqNumber)
 	index = (calculate which frame is being acked, by comparing seqNumber to window head sequence Number)
 	
 	Set Window-> packet_acks[index] to 1
 */
+
+void markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb){
+	int pdu_index_in_window = seqNumber - sw->head_sequence_num;
+	
+	sw->packet_acks[pdu_index_in_window] = 1;
+}
+
 
 /*
 Pseudo for progress tail (sliding_window *sw, circular_buffer *cb)
@@ -69,9 +119,9 @@ Pseudo for progress tail (sliding_window *sw, circular_buffer *cb)
 */
 
 void progress_window_tail(sliding_window *sw,circular_buffer *cb){
-	sw->tail = (char *)sw->head + 1000 * sizeof(char);
-	if (sw->tail == cb->buffer_end){
-		sw->tail = cb->buffer;
+	sw->tail = sw->tail+1;
+	if (sw->tail == 64){
+		sw->tail = 0;
 	}	
 }
 
@@ -87,13 +137,9 @@ Pseudo for progress head (sliding_window *sw, circular_buffer *cb)
 */
 
 void progress_heads(sliding_window *sw,circular_buffer *cb){
-	sw->head = (char *)sw->head + 1000 * sizeof(char);
-	sw->head_sequence_number ++; // or plus 1000, depending on our decision
-	if (sw->head == cb->buffer_end){
-		sw->head = cb->buffer;
-	}
-	//advance the head of the buffer, as well
+	sw->head = (sw->head ++)%cb->capacity;
 	cb->head = sw->head;
+	sw->head_sequence_number ++; // or plus 1000, depending on our decision
 }
 
 //**********************************************BUFFER MANAGEMENT*************************
@@ -111,71 +157,20 @@ Pseudo for addding pdu to buffer (circular_buffer *cb, const *PDU)
 	cb-> count ++
 */
 
-
-
-
-
-
-
-
-void cb_init(circular_buffer *cb)
-{
-    cb->buffer = malloc(64000*sizeof (char));
-    if(cb->buffer == NULL)
-        // handle error
-    cb->buffer_end = (char *)cb->buffer + 64000*sizeof (char);
-    cb->head = cb->buffer;
-    cb->tail = cb->buffer;
+void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet){
+	if (cb->count == cb->capacity) {
+		fprintf(stderr,"Buffer is Full");
+		exit();
+	}
+	
+	int buffer_tail = cb->tail;
+	memcpy(cb->buffer[buffer_tail], packet, sizeof(pdu));
+	progress_buffer_tail(cb);
+	cb->count++;
 }
 
-void sw_init(sliding_window *win, circular_buffer *cb)
-{
-	win->head = cb->head;
-	win->tail = cb->head;	
-	win->count = 0;
-	win->capacity = 20;
-	win->packet_acks = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+void progress_buffer_tail(circular_buffer *cb){
+	cb->tail = (cb->tail +1)%(cb->capacity);
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void cb_free(circular_buffer *cb)
-{
-    free(cb->buffer);
-    // clear out other fields too, just to be safe
-}
-
-void cb_push_back(circular_buffer *cb, const void *item)
-{
-    if(cb->count == cb->capacity)
-        // handle error
-    memcpy(cb->head, item, cb->sz);
-    cb->head = (char*)cb->head + cb->sz;
-    if(cb->head == cb->buffer_end)
-        cb->head = cb->buffer;
-    cb->count++;
-}
-
-void cb_pop_front(circular_buffer *cb, void *item)
-{
-    if(cb->count == 0)
-        // handle error
-    memcpy(item, cb->tail, cb->sz);
-    cb->tail = (char*)cb->tail + cb->sz;
-    if(cb->tail == cb->buffer_end)
-        cb->tail = cb->buffer;
-    cb->count--;
-}
