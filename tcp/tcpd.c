@@ -54,6 +54,9 @@ int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port);
 void set_fwd_addr( struct sockaddr_in* f_addr, int* f_addrlen,
 		   int port
 		   );
+void set_ack_addr( struct sockaddr_in* f_addr, int* f_addrlen,
+		   int port
+		   );
 void* local_listen(void *);
 void* local_send(void *);
 void* remote_listen(void *);
@@ -92,7 +95,7 @@ int main(void)
       exit(1);
     }
   i++;
-  int ls_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
+  int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
   if (ls_thread != 0)
     {
       printf("Error creating local sender#%i\n",i);
@@ -170,6 +173,16 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
   f_addr->sin_port = htons(port); 
   f_addr->sin_addr.s_addr = inet_addr(S_ADDR);  
 
+}void set_ack_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
+{
+   
+  *f_addrlen = sizeof(struct sockaddr_in);
+   
+  memset(f_addr, '\0', *f_addrlen);
+  f_addr->sin_family = AF_INET;
+  f_addr->sin_port = htons(port); 
+  f_addr->sin_addr.s_addr = inet_addr(C_ADDR);  
+
 }
 
 
@@ -202,6 +215,7 @@ void* local_listen(void *arg)
       
       // get next payload from the local host
       local_recv = recvfrom(l_sockfd, local_buf , PAYLOAD , 0, (struct sockaddr *)&recv_addr, &recv_len);
+
       if (local_recv < 0)
 	{
 	  perror("TCPD local:  recvfrom error");
@@ -214,12 +228,13 @@ void* local_listen(void *arg)
 
       // pack buffer into pdu
       build_pdu(&p,&seq, NULL , local_buf, PAYLOAD);
-      
+      seq++;
       // wait for space in window
       sem_wait(&cb_empty);
       
       // enter critical section
       pthread_mutex_lock(&mutex);
+      printf("Adding to buffer seq#%i\n", seq-1);
       add_to_buffer(sw, cb, &p);
       // exit cirital sectio
       pthread_mutex_unlock(&mutex);    
@@ -251,6 +266,7 @@ void* local_send(void *arg)
   while (1)
     {  
       // wait for pdu's to enter buffer
+      printf("Waiting for packets to send\n");
       sem_wait(&cb_full);
 
       // wait for window to open
@@ -258,9 +274,9 @@ void* local_send(void *arg)
       
       // enter critical section
       pthread_mutex_lock(&mutex);
-      
+      pdu * ptr = cb->buffer[sw->tail];
       //send a pdu
-      printf("Sending pack...\n");
+      printf("Sending pack...#%i\n", ptr->h.seq_num);
       local_sent = sendto(r_sockfd, cb->buffer[sw->tail], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
       
       // mark as unacked
@@ -293,6 +309,8 @@ void* remote_listen(void *arg)
   int recv_len;
   struct sockaddr_in fwd_addr;
   int fwd_len;
+  struct sockaddr_in return_addr;
+  int return_len;
   pdu p;
 
   
@@ -301,28 +319,29 @@ void* remote_listen(void *arg)
 
   while (1)
     {
-      //clear pdu
+      // clear pdu
       memset(&p, 0x00, sizeof(pdu));
-    
+      
+      // get next packet
       if ((remote_recv = recvfrom(r_sockfd, remote_buf , MAX_MES_LEN, 0, (struct sockaddr *)&recv_addr, (socklen_t *)&recv_len))<0)
 	{
 	  perror("recv");
 	  exit(1);
 	}
-
       // put into pdu and verify checksum
-      memcpy(&p, &remote_buf, MAX_MES_LEN);
+      memcpy(&p, &remote_buf, remote_recv);
       uint16_t r_checksum =  p.h.chk;
       uint16_t checksum;
       memset(&p.h.chk, 0x00, sizeof(p.h.chk));
       checksum = calc_checksum((char*)&p, MAX_MES_LEN);
-      
+
       // process packet if checksums match
       if (checksum == r_checksum)
 	{
 	  // ack from other remote
 	  if (p.h.flags & ACK)
 	    {
+	      printf("Received ACK#%i\n" ,p.h.ack_num);
 	      cb = &cb_s;
 	      sw = &sw_s;
 	      int seq = p.h.ack_num;
@@ -340,7 +359,7 @@ void* remote_listen(void *arg)
 		  pthread_mutex_unlock(&mutex);
 		}
 	    }
-	  // datagram
+	  // datagram from other remote
 	  else
 	    {
 	      //send to
@@ -350,16 +369,17 @@ void* remote_listen(void *arg)
 	      //send ack
 
 	      pdu ack_p;
-	      char buf[PAYLOAD];
-	      build_pdu(&ack_p, NULL, &p.h.seq_num, buf, PAYLOAD);
-	      ack_p.h.flags += ACK; 
-	      set_fwd_addr(&fwd_addr, &fwd_len, R_PORT) ; 
-	      printf("Received seq#%i.  Sending ack%i\n",p.h.seq_num, ack_p.h.ack_num);
-	      remote_sent = sendto(l_sockfd, (char*)&ack_p,MAX_MES_LEN,  0, (struct sockaddr *)&fwd_addr, fwd_len); 
+	      memset(&ack_p, 0x00, sizeof(pdu));
+	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
+	      set_ack_addr(&return_addr, &return_len, R_PORT) ; 
+	      //printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
+	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len); 
+
 	    }
-	  
-	  
-	  
+	}
+      else 
+	{
+	  printf("Checksums did not match\n");
 	}
     }
 }
@@ -376,7 +396,7 @@ void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
   p->h.win = WINDOW_SIZE;
   if (seq ==NULL)
     {
-      p->h. flags = ACK;
+      p->h. flags += ACK;
       p->h.ack_num = *ack;
     } 
   else if (ack == NULL)
