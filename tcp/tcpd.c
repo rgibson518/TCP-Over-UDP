@@ -28,8 +28,10 @@
 uint32_t seq = 0;
 uint32_t ack = 0;
 
-circular_buffer cb;
-sliding_window sw;
+circular_buffer cb_r;
+sliding_window sw_r;
+circular_buffer cb_s;
+sliding_window sw_s;
 
 //sockets
 unsigned int l_sockfd;
@@ -42,16 +44,15 @@ ssize_t remote_sent = 0;
 
 //thread variables
 pthread_mutex_t mutex;
-sem_t x_full,x_empty; 
+sem_t full, empty; 
 pthread_t tid[NUM_THREADS];
 
 
 /* ===============Prototypes ========= */
 int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port);
-void set_fwd_addr(struct sockaddr_in in_addr, int in_addrlen,
-		 struct sockaddr_in* f_addr, int* f_addrlen,
-		 int port
-		 );
+void set_fwd_addr( struct sockaddr_in* f_addr, int* f_addrlen,
+		   int port
+		   );
 void* local_listen(void *);
 void* remote_listen(void *);
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
@@ -75,6 +76,18 @@ int main(void)
   
   uint16_t checksum;
   uint16_t checksum_r;
+  
+   // initialize semaphores
+  i = sem_init(&full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&empty, 0,  64);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
 
     
   /* create local and remote sockets */
@@ -150,7 +163,7 @@ int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port)
 }
 
  
-void set_fwd_addr(struct sockaddr_in in_addr, int  in_addrlen, struct sockaddr_in*f_addr, int* f_addrlen, int port)
+void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 {
    
   *f_addrlen = sizeof(struct sockaddr_in);
@@ -167,7 +180,6 @@ void set_fwd_addr(struct sockaddr_in in_addr, int  in_addrlen, struct sockaddr_i
  */
 void* local_listen(void *arg)
 {
-  printf("Local listen created.\n");
   char local_buf[PAYLOAD];
   uint32_t local_buflen;
   struct sockaddr_in recv_addr;
@@ -176,26 +188,78 @@ void* local_listen(void *arg)
   int fwd_len;
   pdu p;
   
+  circular_buffer *cb = &cb_s;
+  sliding_window* sw = &sw_s;
   
+  // initialize send buffer and window
+  cb_init(cb);
+  sw_init(sw);
+  
+  // liste for incoming payloads from local host
   while (1)
     {  
       //clear pdu
       memset(&p, 0x00, sizeof(pdu));
       
-      // 
+      // get next payload from the local host
       local_recv = recvfrom(l_sockfd, local_buf , PAYLOAD , 0, (struct sockaddr *)&recv_addr, &recv_len);
       if (local_recv < 0)
 	{
 	  perror("TCPD local:  recvfrom error");
 	  exit(1);
 	}
-      
+      else if (local_recv == 0) 
+	{
+	  //send FIN
+	}
+
       // pack buffer into pdu
       build_pdu(&p,&seq, NULL , local_buf, PAYLOAD);
       
-      p.h.chk = calc_checksum((char*)&p, MAX_MES_LEN);
+      // wait for space in window
+      sem_wait
+      // enter critical section
+      pthread_lock(mutex);
       
-      set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, R_PORT);
+      add_to_buffer(sw, cb, &p);
+      
+      // exit cirital sectio
+      pthread_unlock(mutex);       
+    }
+}
+
+
+/* Listens for incoming local traffic
+ */
+void* local_send(void *arg)
+{
+  struct sockaddr_in recv_addr;
+  int recv_len;
+  struct sockaddr_in fwd_addr;
+  int fwd_len;
+  pdu p;
+  
+  circular_buffer *cb = &cb_s;
+  sliding_window* sw = &sw_s;
+  
+  // initialize send buffer and window
+  cb_init(cb);
+  sw_init(sw);
+  
+  // liste for incoming payloads from local host
+  while (1)
+    {  
+    
+      sem_wait(full);
+      // enter critical section
+      pthread_lock(mutex);
+      
+      add_to_buffer(sw, cb, &p);
+      
+      // exit cirital sectio
+      pthread_unlock(mutex);      
+      
+      set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
       local_sent = sendto(r_sockfd, (char*)&p, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
     }
 }
@@ -236,7 +300,7 @@ void* remote_listen(void *arg)
 	  printf("Checksums did not match(rec:calc):\t%d:%d\n", r_checksum, checksum);
 	}
       
-      set_fwd_addr(recv_addr, recv_len, &fwd_addr, &fwd_len, L_PORT) ;      
+      set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ;      
       remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
     }
 }
@@ -266,5 +330,7 @@ void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
       perror("TCPD: error building pdu Must be ACK or SEQ.");
       exit(1);
     }
+  
+  p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
 }
   
