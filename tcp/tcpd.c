@@ -20,7 +20,7 @@
 #include "tcpd.h"
 #include "buffer.h"
 
-#define NUM_THREADS 3
+#define NUM_THREADS 4
 
 
 /* ===============Global Variables========= */
@@ -46,6 +46,10 @@ ssize_t remote_sent = 0;
 pthread_mutex_t mutex;
 sem_t cb_full, cb_empty; 
 sem_t sw_full, sw_empty; 
+
+pthread_mutex_t rmutex;
+sem_t cbr_full, cbr_empty; 
+sem_t swr_full, swr_empty; 
 pthread_t tid[NUM_THREADS];
 
 
@@ -60,6 +64,7 @@ void set_ack_addr( struct sockaddr_in* f_addr, int* f_addrlen,
 void* local_listen(void *);
 void* local_send(void *);
 void* remote_listen(void *);
+void* remote_send(void*);
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
 void unpack_pdu(pdu* p, header* h, char* buf, int buflen);
 void initialize_semaphores();
@@ -104,6 +109,13 @@ int main(void)
   i++;
   int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
   if (r_thread != 0)
+    {
+      printf("Error creating remote listener #%i\n",i);
+      exit(1);
+    }
+    i++;
+  int rp_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
+  if (rp_thread != 0)
     {
       printf("Error creating remote listener #%i\n",i);
       exit(1);
@@ -245,7 +257,7 @@ void* local_listen(void *arg)
 }
 
 
-/* Listens for incoming local traffic
+/* Send data from buffer to remote host
  */
 void* local_send(void *arg)
 {
@@ -277,7 +289,7 @@ void* local_send(void *arg)
       pdu * ptr = cb->buffer[sw->tail];
       //send a pdu
       printf("Sending pack...#%i\n", ptr->h.seq_num);
-      local_sent = sendto(r_sockfd, cb->buffer[sw->tail], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      local_sent = sendto(r_sockfd, ptr, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
       
       // mark as unacked
       sw->packet_acks[sw->count] == UNACKED;
@@ -314,8 +326,12 @@ void* remote_listen(void *arg)
   pdu p;
 
   
-  circular_buffer *cb;
-  sliding_window* sw;
+  circular_buffer *cb = &cb_r;
+  sliding_window* sw = &sw_r;
+  
+  // initialize send buffer and window
+  cb_init(cb);
+  sw_init(sw, cb);
 
   while (1)
     {
@@ -341,13 +357,12 @@ void* remote_listen(void *arg)
 	  // ack from other remote
 	  if (p.h.flags & ACK)
 	    {
-	      printf("Received ACK#%i\n" ,p.h.ack_num);
 	      cb = &cb_s;
 	      sw = &sw_s;
 	      int seq = p.h.ack_num;
 	      
 	      // filter duplicate ACKs
-	      if (markPDUAcked(seq, sw, cb) !=-1)
+	      if ((markPDUAcked(seq, sw, cb)) ==0)
 		{
 		  //enter critical section
 		  pthread_mutex_lock(&mutex);
@@ -362,6 +377,31 @@ void* remote_listen(void *arg)
 	  // datagram from other remote
 	  else
 	    {
+	      cb = &cb_r;
+	      sw = &sw_r;
+
+	      //ensure this isn't a duplicate
+      	      if ((markPDUAcked(p.h.seq_num, sw, cb))==0)
+		{
+		  printf("Packet is genuine.\n");
+		  // wait for room in buffer
+		  sem_wait(&cbr_empty);
+		  
+		  // enter critical section
+		  pthread_mutex_lock(&rmutex);
+		  
+		  printf("Adding to receive buffer.\n");
+		  add_to_r_buffer(sw, cb, &p);
+		  update_r_window(sw, cb, &sw_empty, &cb_empty);
+		  
+		  // exit critical section
+		  pthread_mutex_unlock(&rmutex);
+		  
+		  // let window know there is more to send
+		  sem_post(&cbr_full);
+
+		}
+	      
 	      //send to
 	      set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ; 
 	      remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len); 
@@ -372,8 +412,8 @@ void* remote_listen(void *arg)
 	      memset(&ack_p, 0x00, sizeof(pdu));
 	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
 	      set_ack_addr(&return_addr, &return_len, R_PORT) ; 
-	      //printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
-	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len); 
+	      //printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk); */
+/* 	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len);  */
 
 	    }
 	}
@@ -384,6 +424,54 @@ void* remote_listen(void *arg)
     }
 }
 
+
+
+/* Send data from buffer to local host
+ */
+void* remote_send(void *arg)
+{
+
+  printf("Remote send created.\n");
+  
+  struct sockaddr_in recv_addr;
+  int recv_len;
+  struct sockaddr_in fwd_addr;
+  int fwd_len;
+  pdu p;
+  
+  circular_buffer *cb = &cb_r;
+  sliding_window* sw = &sw_r;
+  
+  set_fwd_addr(&fwd_addr, &fwd_len, L_PORT);
+  
+  while (1)
+    {  
+      // wait for pdu's to enter buffer
+      printf("Waiting for packets to send\n");
+      sem_wait(&cbr_full);
+
+      // wait for window to open
+      sem_wait(&swr_empty);
+      
+      // enter critical section
+      pthread_mutex_lock(&rmutex);
+      pdu * ptr = cb->buffer[sw->head_sequence_num];
+      //send a pdu
+      printf("Sending pack...#%i\n", ptr->h.seq_num);
+      local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+            
+      // extend tail of the window
+      progress_window_tail(sw,cb);
+      sw->count++;
+      
+      //exit critical section
+      pthread_mutex_unlock(&rmutex);
+      
+      // let remote know it can listen for an ack
+      sem_post(&swr_full);
+      
+    }
+}
 
 
 
@@ -435,6 +523,31 @@ void initialize_semaphores()
     exit(1);
   }
   i = sem_init(&sw_empty, 0,  20);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+
+  // initialize receive semaphores
+
+  i = sem_init(&cbr_full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&cbr_empty, 0,  64);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  
+  // initialize sw semaphores
+  i = sem_init(&swr_full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&swr_empty, 0,  20);
   if (i<0){
     perror("Error: unable to create semaphore");
     exit(1);
