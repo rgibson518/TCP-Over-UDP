@@ -14,10 +14,14 @@
 #ifndef BUFFER_H
 #define BUFFER_H
 
+#define UNACKED 0
+#define ACKED 1
+#define PDU_SIZE 1000
+#define BUFFER_SIZE 64
 
 typedef struct circular_buffer
 {
-    char buffer[64][1000];     // data buffer
+    char buffer[BUFFER_SIZE][PDU_SIZE];     // data buffer
     unsigned int count;  		//number of pdu's in buffer
     unsigned int capacity;
     int head;       // pointer to head
@@ -26,19 +30,27 @@ typedef struct circular_buffer
 
 typedef struct sliding_window
 {
-    int head;       // index of head pdu
+    //tracks index of first in window
+    int head;       
+    // tracks index last sent pdu.
+    int tail; 
     unsigned int head_sequence_num;
-    int tail;       // index of tail pdu
-    
-    unsigned int count;		//number of pdu's in window
+
+    //number of pdu's in window
+    unsigned int count;
     unsigned int capacity;
+
+    // tracks ack'd packets with 1, unack'd with 0 : Use ACKED/UNACKED
     int packet_acks[20];
 } sliding_window;
 
 
 /* ===============Prototypes ========= */
 
+//Buffer functions
 void cb_init(circular_buffer *cb);
+
+//Window functions
 void sw_init(sliding_window *win, circular_buffer *cb);
 void markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb);
 void update_window(sliding_window *sw, circular_buffer *cb);
@@ -55,7 +67,7 @@ void cb_init(circular_buffer *cb)
 {
     cb->head = 0;
     cb->tail = 0;
-    cb->capacity = 64;
+    cb->capacity = BUFFER_SIZE;
     cb->count = 0;
 }
 
@@ -135,17 +147,14 @@ void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet)
 
 void progress_window_tail(sliding_window *sw,circular_buffer *cb)
 {
-    sw->tail = sw->tail+1;
-    if (sw->tail == 64){
-	sw->tail = 0;
-    }	
+    sw->tail = sw->(tail+1)%BUFFER_SIZE;
 }
 
 void progress_heads(sliding_window *sw,circular_buffer *cb)
 {
     sw->head = (sw->head ++)%cb->capacity;
     cb->head = sw->head;
-    sw->head_sequence_num ++; // or plus 1000, depending on our decision
+    sw->head_sequence_num ++; // or plus PDU_SIZE, depending on our decision
 }
 
 
