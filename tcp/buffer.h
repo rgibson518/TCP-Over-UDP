@@ -52,8 +52,8 @@ void cb_init(circular_buffer *cb);
 
 //Window functions
 void sw_init(sliding_window *win, circular_buffer *cb);
-void markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb);
-void update_window(sliding_window *sw, circular_buffer *cb);
+int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb);
+void update_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t* cb_sem);
 void send_available_packets(sliding_window *sw, circular_buffer *cb);
 void progress_buffer_tail(circular_buffer *cb);
 void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet);
@@ -84,14 +84,24 @@ void sw_init(sliding_window *win, circular_buffer *cb)
     }
 }
 
-void markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
+
+// Return -1 if duplicate, 0 if new ack
+int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
 {
+    
     int pdu_index_in_window = seqNumber - sw->head_sequence_num;
     
-    sw->packet_acks[pdu_index_in_window] = 1;
+    // if duplicate ack
+    if ( (pdu_index_in_window < 0) ||  (sw->packet_acks[pdu_index_in_window] ==0))
+    {
+	return  -1;
+    }
+    else{
+	return 0;
+    }
 }
-    
-void update_window(sliding_window *sw, circular_buffer *cb)
+
+void update_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t* cb_sem)
 {
     unsigned int initial_window_count = sw->count;
     int i = 0;
@@ -105,6 +115,8 @@ void update_window(sliding_window *sw, circular_buffer *cb)
 	cb->count --;
 	sw->packet_acks[i] = 0;
 	i++;
+	sem_post(sw_sem);
+	sem_post(cb_sem);
 	if (i < 20){
 	    frame_acked = sw->packet_acks[i];	
 	}
@@ -147,7 +159,7 @@ void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet)
 
 void progress_window_tail(sliding_window *sw,circular_buffer *cb)
 {
-    sw->tail = sw->(tail+1)%BUFFER_SIZE;
+    sw->tail = (sw->tail+1)%BUFFER_SIZE;
 }
 
 void progress_heads(sliding_window *sw,circular_buffer *cb)

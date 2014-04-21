@@ -1,18 +1,18 @@
-#include <stdio.h>
-#include "tcp/tcpd.h"
-#include <string.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <string.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 
+#include "tcp/pdu.h"
+
+#define T_PORT 10001 //Daemon port (local)
+#define R_PORT 15001 //Remote port
+#define WINDOW_SIZE 20
 
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
 int main ()
@@ -33,6 +33,21 @@ int main ()
   printf("Indirect reference s_port: %i\n", p_ptr->h.s_port);
   printf("Indirect reference seq_num: %u\n", p_ptr->h.seq_num);
   printf("Indirect reference chk: %4u\n", p_ptr->h.chk);
+
+  //p.h.flags +=ACK;
+  p.h.flags +=SYN;
+  printf("ACK = \t%u\n",p.h.flags);
+
+  int ackd = p.h.flags && ACK;
+  int syn = p.h.flags && SYN;
+
+  if (ackd){
+    printf("ACKD? \t%u\n", ackd);
+  }
+  
+  if (syn){
+    printf("SYN? \t%u\n", syn);
+  }
   return 0;
 }
 

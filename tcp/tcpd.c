@@ -20,7 +20,7 @@
 #include "tcpd.h"
 #include "buffer.h"
 
-#define NUM_THREADS 2
+#define NUM_THREADS 3
 
 
 /* ===============Global Variables========= */
@@ -44,7 +44,8 @@ ssize_t remote_sent = 0;
 
 //thread variables
 pthread_mutex_t mutex;
-sem_t full, empty; 
+sem_t cb_full, cb_empty; 
+sem_t sw_full, sw_empty; 
 pthread_t tid[NUM_THREADS];
 
 
@@ -54,9 +55,11 @@ void set_fwd_addr( struct sockaddr_in* f_addr, int* f_addrlen,
 		   int port
 		   );
 void* local_listen(void *);
+void* local_send(void *);
 void* remote_listen(void *);
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
 void unpack_pdu(pdu* p, header* h, char* buf, int buflen);
+void initialize_semaphores();
 
 
 
@@ -74,38 +77,32 @@ int main(void)
   struct sockaddr_in remote_addr;		
   int remote_len;	
   
-  uint16_t checksum;
-  uint16_t checksum_r;
-  
-   // initialize semaphores
-  i = sem_init(&full, 0, 0);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-  i = sem_init(&empty, 0,  64);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-
+ 
+  initialize_semaphores();
     
   /* create local and remote sockets */
   l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
   r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
   
   int i = 0;
-  int l_thread = pthread_create(&tid[i], NULL, local_listen, &l_sockfd); 
+  int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
   if (l_thread != 0)
     {
       printf("Error creating local listener#%i\n",i);
       exit(1);
     }
   i++;
-  int r_thread = pthread_create(&tid[i], NULL, remote_listen, &r_sockfd); 
+  int ls_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
+  if (ls_thread != 0)
+    {
+      printf("Error creating local sender#%i\n",i);
+      exit(1);
+    }
+  i++;
+  int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
   if (r_thread != 0)
     {
-      printf("Error creating remote listenter #%i\n",i);
+      printf("Error creating remote listener #%i\n",i);
       exit(1);
     }
   
@@ -180,6 +177,8 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
  */
 void* local_listen(void *arg)
 {
+
+  printf("Local listen created.\n");
   char local_buf[PAYLOAD];
   uint32_t local_buflen;
   struct sockaddr_in recv_addr;
@@ -193,7 +192,7 @@ void* local_listen(void *arg)
   
   // initialize send buffer and window
   cb_init(cb);
-  sw_init(sw);
+  sw_init(sw, cb);
   
   // liste for incoming payloads from local host
   while (1)
@@ -217,14 +216,16 @@ void* local_listen(void *arg)
       build_pdu(&p,&seq, NULL , local_buf, PAYLOAD);
       
       // wait for space in window
-      sem_wait
+      sem_wait(&cb_empty);
+      
       // enter critical section
-      pthread_lock(mutex);
-      
+      pthread_mutex_lock(&mutex);
       add_to_buffer(sw, cb, &p);
-      
       // exit cirital sectio
-      pthread_unlock(mutex);       
+      pthread_mutex_unlock(&mutex);    
+
+      // signal pdu has been put in buffer
+      sem_post(&cb_full);
     }
 }
 
@@ -233,6 +234,9 @@ void* local_listen(void *arg)
  */
 void* local_send(void *arg)
 {
+
+  printf("Local send created.\n");
+  
   struct sockaddr_in recv_addr;
   int recv_len;
   struct sockaddr_in fwd_addr;
@@ -242,34 +246,46 @@ void* local_send(void *arg)
   circular_buffer *cb = &cb_s;
   sliding_window* sw = &sw_s;
   
-  // initialize send buffer and window
-  cb_init(cb);
-  sw_init(sw);
+  set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
   
-  // liste for incoming payloads from local host
   while (1)
     {  
-    
-      sem_wait(full);
+      // wait for pdu's to enter buffer
+      sem_wait(&cb_full);
+
+      // wait for window to open
+      sem_wait(&sw_empty);
+      
       // enter critical section
-      pthread_lock(mutex);
+      pthread_mutex_lock(&mutex);
       
-      add_to_buffer(sw, cb, &p);
+      //send a pdu
+      printf("Sending pack...\n");
+      local_sent = sendto(r_sockfd, cb->buffer[sw->tail], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
       
-      // exit cirital sectio
-      pthread_unlock(mutex);      
+      // mark as unacked
+      sw->packet_acks[sw->count] == UNACKED;
       
-      set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
-      local_sent = sendto(r_sockfd, (char*)&p, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      // extend tail of the window
+      progress_window_tail(sw,cb);
+      sw->count++;
+      
+      //exit critical section
+      pthread_mutex_unlock(&mutex);
+      
+      // let remote know it can listen for an ack
+      sem_post(&sw_full);
+      
     }
 }
 
 
 /* Listens on incoming remote traffic
+   and ack's pdu's 
  */
 void* remote_listen(void *arg)
 {
-    printf("Local remote created.\n");
+    printf("Remote listen created.\n");
   
   char remote_buf[MAX_MES_LEN];
   uint32_t remote_buflen;
@@ -278,7 +294,11 @@ void* remote_listen(void *arg)
   struct sockaddr_in fwd_addr;
   int fwd_len;
   pdu p;
+
   
+  circular_buffer *cb;
+  sliding_window* sw;
+
   while (1)
     {
       //clear pdu
@@ -289,21 +309,61 @@ void* remote_listen(void *arg)
 	  perror("recv");
 	  exit(1);
 	}
-      printf("Bytes received:\t%i\n", remote_recv);
+
+      // put into pdu and verify checksum
       memcpy(&p, &remote_buf, MAX_MES_LEN);
       uint16_t r_checksum =  p.h.chk;
       uint16_t checksum;
       memset(&p.h.chk, 0x00, sizeof(p.h.chk));
       checksum = calc_checksum((char*)&p, MAX_MES_LEN);
-      if (checksum)
-	{
-	  printf("Checksums did not match(rec:calc):\t%d:%d\n", r_checksum, checksum);
-	}
       
-      set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ;      
-      remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      // process packet if checksums match
+      if (checksum == r_checksum)
+	{
+	  // ack from other remote
+	  if (p.h.flags & ACK)
+	    {
+	      cb = &cb_s;
+	      sw = &sw_s;
+	      int seq = p.h.ack_num;
+	      
+	      // filter duplicate ACKs
+	      if (markPDUAcked(seq, sw, cb) !=-1)
+		{
+		  //enter critical section
+		  pthread_mutex_lock(&mutex);
+		  
+		  //progress heads and signal window slide
+		  update_window(sw, cb, &sw_empty, &cb_empty);
+		  
+		  //exit critical section
+		  pthread_mutex_unlock(&mutex);
+		}
+	    }
+	  // datagram
+	  else
+	    {
+	      //send to
+	      set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ; 
+	      remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len); 
+	      
+	      //send ack
+
+	      pdu ack_p;
+	      char buf[PAYLOAD];
+	      build_pdu(&ack_p, NULL, &p.h.seq_num, buf, PAYLOAD);
+	      ack_p.h.flags += ACK; 
+	      set_fwd_addr(&fwd_addr, &fwd_len, R_PORT) ; 
+	      printf("Received seq#%i.  Sending ack%i\n",p.h.seq_num, ack_p.h.ack_num);
+	      remote_sent = sendto(l_sockfd, (char*)&ack_p,MAX_MES_LEN,  0, (struct sockaddr *)&fwd_addr, fwd_len); 
+	    }
+	  
+	  
+	  
+	}
     }
 }
+
 
 
 
@@ -334,3 +394,29 @@ void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
   p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
 }
   
+void initialize_semaphores()
+{
+  // initialize cb semaphores
+  int i = sem_init(&cb_full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&cb_empty, 0,  64);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  
+  // initialize sw semaphores
+  i = sem_init(&sw_full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&sw_empty, 0,  20);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+}
