@@ -347,8 +347,9 @@ void* remote_listen(void *arg)
 	      int seq = p.h.ack_num;
 	      
 	      // filter duplicate ACKs
-	      if (markPDUAcked(seq, sw, cb) !=-1)
+	      if ((markPDUAcked(seq, sw, cb)) ==0)
 		{
+		  printf("ACK is genuine.\n");
 		  //enter critical section
 		  pthread_mutex_lock(&mutex);
 		  
