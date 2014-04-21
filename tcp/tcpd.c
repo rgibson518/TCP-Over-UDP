@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "tcpd.h"
+#include "buffer.h"
 
 #define NUM_THREADS 2
 
@@ -26,6 +27,9 @@
 
 uint32_t seq = 0;
 uint32_t ack = 0;
+
+circular_buffer cb;
+sliding_window sw;
 
 //sockets
 unsigned int l_sockfd;
@@ -42,7 +46,7 @@ sem_t x_full,x_empty;
 pthread_t tid[NUM_THREADS];
 
 
-// Prototypes
+/* ===============Prototypes ========= */
 int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port);
 void set_fwd_addr(struct sockaddr_in in_addr, int in_addrlen,
 		 struct sockaddr_in* f_addr, int* f_addrlen,
