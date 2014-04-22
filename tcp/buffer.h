@@ -93,9 +93,9 @@ int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
 {
     
     int pdu_index_in_window = seqNumber - sw->head_sequence_num;
-    //printf("Window head:\t%i\n", sw->head_sequence_num);
-    //printf("Sequence # to ACK:\t%i\n", seqNumber);
-    //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
+    printf("Window head:\t%i\n", sw->head_sequence_num);
+    printf("Sequence # to ACK:\t%i\n", seqNumber);
+    printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
     // if duplicate ack
     if ( (pdu_index_in_window < 0) ||  (sw->packet_acks[pdu_index_in_window] ==1))
     {
