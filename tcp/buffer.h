@@ -95,14 +95,15 @@ int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
     int pdu_index_in_window = seqNumber - sw->head_sequence_num;
     printf("Window head:\t%i\n", sw->head_sequence_num);
     printf("Sequence # to ACK:\t%i\n", seqNumber);
-    printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
+    //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
     // if duplicate ack
     if ( (pdu_index_in_window < 0) ||  (sw->packet_acks[pdu_index_in_window] ==1))
     {
 	return  -1;
     }
     else{
-	sw->packet_acks[pdu_index_in_window] = 1;
+		//printf("Successful ACK");
+	sw->packet_acks[pdu_index_in_window] = ACKED;
 	return 0;
     }
 }
@@ -113,7 +114,7 @@ void update_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t
     int i = 0;
     int frame_acked = sw->packet_acks[0];
     
-    while (i < initial_window_count && frame_acked == 1 && sw->head != cb->tail && sw->head != sw->tail)
+    while (i < initial_window_count && frame_acked == 1  && sw->head != sw->tail)
 {
 	
 	progress_heads(sw, cb);
@@ -128,6 +129,7 @@ void update_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t
 	}
     }
 }
+
 
 void update_r_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t* cb_sem)
 {
@@ -151,19 +153,20 @@ void update_r_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem
     }
 }
 
+/*
 void send_available_packets(sliding_window *sw, circular_buffer *cb)
 {
     while ( sw->count < sw->capacity && sw->tail != cb->tail)
 {
-	/*
+	
 	  TODO  SEND PDU IN FRONT OF TAIL
-	*/
+	
 	int window_count = sw->count;
 	sw->packet_acks[window_count] == 0;
 	progress_window_tail(sw,cb);
 	sw->count++;
     }
-}
+}*/
 
 
 void progress_buffer_tail(circular_buffer *cb)
