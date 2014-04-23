@@ -1,3 +1,10 @@
+/*
+Buffer being used incorrectly.  should be sending as many as possible from after the tail.  the head is the lower index
+should receive acks and progress head, send pdu's and progress tail
+*/
+
+
+
 /* Example: server.c receiving and sending datagrams on system generated port in UDP */
 
 #define _REENTRANT
@@ -16,16 +23,18 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/un.h>
 
 #include "tcpd.h"
 #include "buffer.h"
 
-#define NUM_THREADS 3
+#define NUM_THREADS 4
 
 
 /* ===============Global Variables========= */
 
-uint32_t seq = 0;
+//uint32_t seq = 0;
 uint32_t ack = 0;
 
 circular_buffer cb_r;
@@ -36,6 +45,8 @@ sliding_window sw_s;
 //sockets
 unsigned int l_sockfd;
 unsigned int r_sockfd;
+unsigned int dt_sockfd;
+unsigned int len;
 
 ssize_t local_recv = 0;
 ssize_t local_sent = 0;
@@ -60,7 +71,8 @@ void set_ack_addr( struct sockaddr_in* f_addr, int* f_addrlen,
 void* local_listen(void *);
 void* local_send(void *);
 void* remote_listen(void *);
-void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
+void* listen_to_timer_socket();
+void build_pdu(pdu* p, int* sequence, uint32_t* ack, char* buf, ssize_t buflen);
 void unpack_pdu(pdu* p, header* h, char* buf, int buflen);
 void initialize_semaphores();
 
@@ -70,8 +82,73 @@ void initialize_semaphores();
 /*================MAIN ===============*/
 
 /* Daemon service*/
-int main(void) 
+int main(int argc, char *argv[]) 
 {
+
+	//***************Fork and connect to delta timer ***************************
+	int pid;
+	int count = 0;
+	char *argv2[] = { NULL };
+	char *newarg[] = {"./dt", NULL};
+
+
+    circular_buffer *cb = &cb_r;
+    sliding_window* sw = &sw_r;
+  
+    // initialize send buffer and window
+    cb_init(cb);
+    sw_init(sw, cb);
+
+	pid = fork();
+	if (pid == 0){
+
+		if ( execve("./dt", newarg, argv2) )
+		{
+		    printf("execv failed with error %d %s\n",errno,strerror(errno));
+		    return 254;  
+		}
+		
+	}
+	
+	sleep(1);
+   	struct sockaddr_un remote;
+    	char str[100];
+	int thread_id;
+//	pthread_t	p_thread;
+
+    	if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+       		 perror("socket");
+       		 exit(1);
+    	}
+
+   	 printf("Trying to connect to timer...\n");
+
+    	remote.sun_family = AF_UNIX;
+    	strcpy(remote.sun_path, "mysocket2");
+    	len = strlen(remote.sun_path) + sizeof(remote.sun_family);
+    	if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
+       		 perror("connect");
+       		 exit(1);
+   	 }
+
+   	 printf("Connected to timer.\n");
+
+
+
+	/*As of now, this is setting up a thread to listen to the socket on 
+		dt_sockfd.  We need to make that listening occur somewhere in one of
+		our existing threads, or make the thread that is created here interact with
+		them somehow.  this thread receives messages identifying which 
+		packets have timed outs*/
+        int i = 0;
+	thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
+	i++;
+
+
+ //*****************************END OF CONNECTING TO DELTA TIMER***************
+
+
+
   fd_set read_fd_set;
   
   struct sockaddr_in local_addr;
@@ -87,7 +164,7 @@ int main(void)
   l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
   r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
   
-  int i = 0;
+
   int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
   if (l_thread != 0)
     {
@@ -186,6 +263,28 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 }
 
 
+/*Listens to socket to make connection with delta timer
+*/
+
+void* listen_to_timer_socket(){
+	int mode;
+	int n, rc;
+	unsigned int t, port, packet, duration;
+	char *token, *search = " ";
+	char str[100];
+
+	/*while(1){
+        if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
+            str[t] = '\0';
+            printf("timeout received : %s", str);
+        } else {
+            if (t < 0) perror("recv");
+            else printf("Server closed connection\n");
+            exit(1);
+        }
+	}*/
+}
+
 /* Listens for incoming local traffic
  */
 void* local_listen(void *arg)
@@ -199,6 +298,7 @@ void* local_listen(void *arg)
   struct sockaddr_in fwd_addr;
   int fwd_len;
   pdu p;
+  int seq = 0;
   
   circular_buffer *cb = &cb_s;
   sliding_window* sw = &sw_s;
@@ -227,9 +327,9 @@ void* local_listen(void *arg)
 	}
 
       // pack buffer into pdu
-      build_pdu(&p,&seq, NULL , local_buf, PAYLOAD);
+      build_pdu(&p, &seq, NULL , local_buf, PAYLOAD);
       seq++;
-      // wait for space in window
+      // wait for space in buffer
       sem_wait(&cb_empty);
       
       // enter critical section
@@ -257,9 +357,11 @@ void* local_send(void *arg)
   struct sockaddr_in fwd_addr;
   int fwd_len;
   pdu p;
+  char str[100];
+  unsigned int send_check;
   
   circular_buffer *cb = &cb_s;
-  sliding_window* sw = &sw_s;
+  sliding_window *sw = &sw_s;
   
   set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
   
@@ -274,6 +376,7 @@ void* local_send(void *arg)
       
       // enter critical section
       pthread_mutex_lock(&mutex);
+
       pdu * ptr = cb->buffer[sw->tail];
       //send a pdu
       printf("Sending pack...#%i\n", ptr->h.seq_num);
@@ -281,6 +384,16 @@ void* local_send(void *arg)
       
       // mark as unacked
       sw->packet_acks[sw->count] == UNACKED;
+	  
+	//START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT
+      /*  IGNORE TIMER FOR NOW
+	  printf("Adding to delta list seq# %i duration %i msec\n", ptr->h.seq_num, 10);
+      add_to_buffer(sw, cb, &p);
+      sprintf(str, "1 %i %i", ptr->h.seq_num, 100000);
+      
+	  send_check = send(dt_sockfd, str, 100, 0);*/
+
+
       
       // extend tail of the window
       progress_window_tail(sw,cb);
@@ -312,6 +425,8 @@ void* remote_listen(void *arg)
   struct sockaddr_in return_addr;
   int return_len;
   pdu p;
+  char str[100];
+  unsigned int send_check;
 
   
   circular_buffer *cb;
@@ -344,25 +459,38 @@ void* remote_listen(void *arg)
 	      printf("Received ACK#%i\n" ,p.h.ack_num);
 	      cb = &cb_s;
 	      sw = &sw_s;
-	      int seq = p.h.ack_num;
+	      int ack_seq = p.h.ack_num;
 	      
 	      // filter duplicate ACKs
-	      if ((markPDUAcked(seq, sw, cb)) ==0)
-		{
-		  printf("ACK is genuine.\n");
-		  //enter critical section
-		  pthread_mutex_lock(&mutex);
-		  
+		pthread_mutex_lock(&mutex);
+	      if ((markPDUAcked(ack_seq, sw, cb)) ==0)
+			{
+		  //printf("ACK is genuine.\n");
+			
+		/*	IGNORE TIMER FOR NOW
+     		 sprintf(str, "2 %i", ack_seq);
+      		 send_check = send(dt_sockfd, str, 100, 0);
+		  */		  
 		  //progress heads and signal window slide
-		  update_window(sw, cb, &sw_empty, &cb_empty);
+			sem_wait(&sw_full);
+			  update_window(sw, cb, &sw_empty, &cb_empty);
 		  
 		  //exit critical section
-		  pthread_mutex_unlock(&mutex);
-		}
+			}
+		 pthread_mutex_unlock(&mutex);
 	    }
 	  // datagram from other remote
 	  else
 	    {
+			cb = &cb_r;
+			sw = &sw_r;
+			int seq = p.h.seq_num;
+			
+			/*
+			Need to implement logic to place a pdu in the window, and progress heads, just like on client side
+			As the heads progress, the dataloads will be remote_sent
+			*/
+			
 	      //send to
 	      set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ; 
 	      remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len); 
@@ -374,6 +502,7 @@ void* remote_listen(void *arg)
 	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
 	      set_ack_addr(&return_addr, &return_len, R_PORT) ; 
 	      //printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
+		  usleep(40000);
 	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len); 
 
 	    }
@@ -390,19 +519,19 @@ void* remote_listen(void *arg)
 
 /* Builds pdu from buffer
  */
-void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
+void build_pdu(pdu* p, int* sequence, uint32_t* ack, char* buf, ssize_t buflen)
 {
   p->h. s_port = R_PORT;
   p->h. d_port = T_PORT;
   p->h.win = WINDOW_SIZE;
-  if (seq ==NULL)
+  if (sequence == NULL)
     {
       p->h. flags += ACK;
       p->h.ack_num = *ack;
     } 
   else if (ack == NULL)
     {
-      p->h.seq_num = *seq;
+      p->h.seq_num = *sequence;
       memcpy(p->data, buf, buflen);
     }
   else 
