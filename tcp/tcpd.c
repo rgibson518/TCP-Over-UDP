@@ -67,11 +67,11 @@ pthread_t tid[NUM_THREADS];
 /* ===============Prototypes ========= */
 int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port);
 void set_fwd_addr( struct sockaddr_in* f_addr, int* f_addrlen,
-		   int port
-		   );
+int port
+	);
 void set_ack_addr( struct sockaddr_in* f_addr, int* f_addrlen,
-		   int port
-		   );
+int port
+	);
 void* local_listen(void *);
 void* local_send(void *);
 void* remote_listen(void *);
@@ -96,113 +96,113 @@ int main(int argc, char *argv[])
 	char *newarg[] = {"./dt", NULL};
 
 
-    circular_buffer *cb = &cb_r;
-    sliding_window* sw = &sw_r;
+	circular_buffer *cb = &cb_r;
+	sliding_window* sw = &sw_r;
   
-    // initialize send buffer and window
-    cb_init(cb);
-    sw_init(sw, cb);
+	// initialize send buffer and window
+	cb_init(cb);
+	sw_init(sw, cb);
 
 	pid = fork();
 	if (pid == 0){
 
 		if ( execve("./dt", newarg, argv2) )
 		{
-		    printf("execv failed with error %d %s\n",errno,strerror(errno));
-		    return 254;  
+			printf("execv failed with error %d %s\n",errno,strerror(errno));
+			return 254;  
 		}
 		
 	}
 	
 	sleep(1);
-   	struct sockaddr_un remote;
-    	char str[100];
+	struct sockaddr_un remote;
+	char str[100];
 	int thread_id;
-//	pthread_t	p_thread;
+	//	pthread_t	p_thread;
 
-    	if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
-       		 perror("socket");
-       		 exit(1);
-    	}
+	if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+		perror("socket");
+		exit(1);
+	}
 
-   	 printf("Trying to connect to timer...\n");
+	printf("Trying to connect to timer...\n");
 
-    	remote.sun_family = AF_UNIX;
-    	strcpy(remote.sun_path, "mysocket2");
-    	len = strlen(remote.sun_path) + sizeof(remote.sun_family);
-    	if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
-       		 perror("connect");
-       		 exit(1);
-   	 }
+	remote.sun_family = AF_UNIX;
+	strcpy(remote.sun_path, "mysocket2");
+	len = strlen(remote.sun_path) + sizeof(remote.sun_family);
+	if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
+		perror("connect");
+		exit(1);
+	}
 
-   	 printf("Connected to timer.\n");
+	printf("Connected to timer.\n");
 
 
 
 	/*As of now, this is setting up a thread to listen to the socket on 
-		dt_sockfd.  We need to make that listening occur somewhere in one of
-		our existing threads, or make the thread that is created here interact with
-		them somehow.  this thread receives messages identifying which 
-		packets have timed outs*/
-        int i = 0;
+	dt_sockfd.  We need to make that listening occur somewhere in one of
+	our existing threads, or make the thread that is created here interact with
+	them somehow.  this thread receives messages identifying which 
+	packets have timed outs*/
+	int i = 0;
 	thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
 	i++;
 
 
- //*****************************END OF CONNECTING TO DELTA TIMER***************
+	//*****************************END OF CONNECTING TO DELTA TIMER***************
 
 
 
-  fd_set read_fd_set;
+	fd_set read_fd_set;
   
-  struct sockaddr_in local_addr;
-  int local_len;			
+	struct sockaddr_in local_addr;
+	int local_len;			
   
-  struct sockaddr_in remote_addr;		
-  int remote_len;	
+	struct sockaddr_in remote_addr;		
+	int remote_len;	
   
  
-  initialize_semaphores();
+	initialize_semaphores();
     
-  /* create local and remote sockets */
-  l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
-  r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
+	/* create local and remote sockets */
+	l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
+	r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
   
 
-  int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
-  if (l_thread != 0)
-    {
-      printf("Error creating local listener#%i\n",i);
-      exit(1);
-    }
-  i++;
-  int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
-  if (ls_thread != 0)
-    {
-      printf("Error creating local sender#%i\n",i);
-      exit(1);
-    }
-  i++;
-  int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
-  if (r_thread != 0)
-    {
-      printf("Error creating remote listener #%i\n",i);
-      exit(1);
-    }
-  
-  //wait for any Timeouts
-  //join back together threads
-  int j;
-  for (j = 0;j < NUM_THREADS; j++) 
-    {
-      i = pthread_join(tid[j],NULL);
-      if (i!=0)
+	int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
+	if (l_thread != 0)
 	{
-	  printf("Error: unable to join thread");
-	  exit(1);
-	} 
-    }
-  printf("Threads joined.\n");
+		printf("Error creating local listener#%i\n",i);
+		exit(1);
+	}
+	i++;
+	int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
+	if (ls_thread != 0)
+	{
+		printf("Error creating local sender#%i\n",i);
+		exit(1);
+	}
+	i++;
+	int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
+	if (r_thread != 0)
+	{
+		printf("Error creating remote listener #%i\n",i);
+		exit(1);
+	}
+  
+	//wait for any Timeouts
+	//join back together threads
+	int j;
+	for (j = 0;j < NUM_THREADS; j++) 
+	{
+		i = pthread_join(tid[j],NULL);
+		if (i!=0)
+		{
+			printf("Error: unable to join thread");
+			exit(1);
+		} 
+	}
+	printf("Threads joined.\n");
 }
 
 
@@ -213,56 +213,56 @@ int main(int argc, char *argv[])
 int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port)
 {
   
-  /*create local socket*/
-  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-  if(sockfd < 0) {
-    perror("opening datagram socket");
-    exit(1);
-  }
+	/*create local socket*/
+	int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	if(sockfd < 0) {
+		perror("opening datagram socket");
+		exit(1);
+	}
   
-  /*  lose the pesky "Address already in use" error message (from Beej's)*/
-  int yes=1;
-  if (setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(int)) == -1) {
-    perror("setsockopt");
-    exit(1);
-  } 
+	/*  lose the pesky "Address already in use" error message (from Beej's)*/
+	int yes=1;
+	if (setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(int)) == -1) {
+		perror("setsockopt");
+		exit(1);
+	} 
 
-  *addrlen = sizeof(struct sockaddr_in);
+	*addrlen = sizeof(struct sockaddr_in);
   
-  /* create name with parameters and bind name to socket */
-  memset(addr, '\0', *addrlen);
-  addr->sin_family = AF_INET;
-  addr->sin_port = htons(port);
-  addr->sin_addr.s_addr = htonl(INADDR_ANY);
+	/* create name with parameters and bind name to socket */
+	memset(addr, '\0', *addrlen);
+	addr->sin_family = AF_INET;
+	addr->sin_port = htons(port);
+	addr->sin_addr.s_addr = htonl(INADDR_ANY);
 
-  if(bind(sockfd, (struct sockaddr *) addr, *addrlen) < 0) {
-    perror("getting socket name");
-    exit(2);
-  }
+	if(bind(sockfd, (struct sockaddr *) addr, *addrlen) < 0) {
+		perror("getting socket name");
+		exit(2);
+	}
 
-  return sockfd;
+	return sockfd;
 }
 
  
 void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 {
    
-  *f_addrlen = sizeof(struct sockaddr_in);
+	*f_addrlen = sizeof(struct sockaddr_in);
    
-  memset(f_addr, '\0', *f_addrlen);
-  f_addr->sin_family = AF_INET;
-  f_addr->sin_port = htons(port); 
-  f_addr->sin_addr.s_addr = inet_addr(S_ADDR);  
+	memset(f_addr, '\0', *f_addrlen);
+	f_addr->sin_family = AF_INET;
+	f_addr->sin_port = htons(port); 
+	f_addr->sin_addr.s_addr = inet_addr(S_ADDR);  
 
 }void set_ack_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 {
    
-  *f_addrlen = sizeof(struct sockaddr_in);
+	*f_addrlen = sizeof(struct sockaddr_in);
    
-  memset(f_addr, '\0', *f_addrlen);
-  f_addr->sin_family = AF_INET;
-  f_addr->sin_port = htons(port); 
-  f_addr->sin_addr.s_addr = inet_addr(C_ADDR);  
+	memset(f_addr, '\0', *f_addrlen);
+	f_addr->sin_family = AF_INET;
+	f_addr->sin_port = htons(port); 
+	f_addr->sin_addr.s_addr = inet_addr(C_ADDR);  
 
 }
 
@@ -272,331 +272,370 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 
 void* listen_to_timer_socket(){
 	int mode;
-	int n, rc;
+	int sequence, rc;
 	unsigned int t, port, packet, duration;
 	char *token, *search = " ";
 	char str[100];
+	ssize_t pdu_resent = 0;
+	int fwd_len;
+	struct sockaddr_in fwd_addr;
+	set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+	circular_buffer *cb = &cb_s;
 
-	/*while(1){
-        if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
-            str[t] = '\0';
-            printf("timeout received : %s", str);
-	    //take the packet number modded with the size of buffer
-	    //resend the packet in that position
-        } else {
-            if (t < 0) perror("recv");
-            else printf("Server closed connection\n");
-            exit(1);
-        }
-	}*/
+	while(1){
+	if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
+	str[t] = '\0';
+	printf("timeout received : %s", str);
+	
+	//take the packet number modded with the size of buffer
+	//resend the packet in that position
+	sscanf(str, "%d", &sequence);
+	sequence = sequence % BUFFER_SIZE;
+	pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+	
+	
+	
+	} else {
+	if (t < 0) perror("recv");
+	else printf("Server closed connection\n");
+	exit(1);
+	}
+	}
 }
 
 /* Listens for incoming local traffic
- */
+*/
 void* local_listen(void *arg)
 {
 
-  printf("Local listen created.\n");
-  char local_buf[PAYLOAD];
-  uint32_t local_buflen;
-  struct sockaddr_in recv_addr;
-  int recv_len;
-  struct sockaddr_in fwd_addr;
-  int fwd_len;
-  pdu p;
+	printf("Local listen created.\n");
+	char local_buf[PAYLOAD];
+	uint32_t local_buflen;
+	struct sockaddr_in recv_addr;
+	int recv_len;
+	struct sockaddr_in fwd_addr;
+	int fwd_len;
+	pdu p;
   
-  circular_buffer *cb = &cb_s;
-  sliding_window* sw = &sw_s;
+	circular_buffer *cb = &cb_s;
+	sliding_window* sw = &sw_s;
   
-  // initialize send buffer and window
-  cb_init(cb);
-  sw_init(sw, cb);
+	// initialize send buffer and window
+	cb_init(cb);
+	sw_init(sw, cb);
   
-  // liste for incoming payloads from local host
-  while (1)
-    {  
-      //clear pdu
-      memset(&p, 0x00, sizeof(pdu));
+	// liste for incoming payloads from local host
+	while (1)
+	{  
+		//clear pdu
+		memset(&p, 0x00, sizeof(pdu));
       
-      // get next payload from the local host
-      local_recv = recvfrom(l_sockfd, local_buf , PAYLOAD , 0, (struct sockaddr *)&recv_addr, &recv_len);
+		// get next payload from the local host
+		local_recv = recvfrom(l_sockfd, local_buf , PAYLOAD , 0, (struct sockaddr *)&recv_addr, &recv_len);
 
-      if (local_recv < 0)
-	{
-	  perror("TCPD local:  recvfrom error");
-	  exit(1);
-	}
-      else if (local_recv == 0) 
-	{
-	  //send FIN
-	}
+		if (local_recv < 0)
+		{
+			perror("TCPD local:  recvfrom error");
+			exit(1);
+		}
+		else if (local_recv == 0) 
+		{
+			//send FIN
+		}
 
-      // pack buffer into pdu
-      build_pdu(&p, &seq, NULL , local_buf, PAYLOAD);
-      seq++;
-      // wait for space in buffer
-      sem_wait(&cb_empty);
+		// pack buffer into pdu
+		build_pdu(&p, &seq, NULL , local_buf, PAYLOAD);
+		seq++;
+		// wait for space in buffer
+		sem_wait(&cb_empty);
       
-      // enter critical section
-      pthread_mutex_lock(&mutex);
-      printf("Adding to buffer seq#%i\n", seq-1);
-      add_to_buffer(sw, cb, &p);
-      // exit cirital sectio
-      pthread_mutex_unlock(&mutex);    
+		// enter critical section
+		pthread_mutex_lock(&mutex);
+		printf("Adding to buffer seq#%i\n", seq-1);
+		add_to_buffer(sw, cb, &p);
+		// exit cirital sectio
+		pthread_mutex_unlock(&mutex);    
 
-      // signal pdu has been put in buffer
-      sem_post(&cb_full);
-    }
+		// signal pdu has been put in buffer
+		sem_post(&cb_full);
+	}
 }
 
 
 /* Listens for incoming local traffic
- */
+*/
 void* local_send(void *arg)
 {
 
-  printf("Local send created.\n");
+	printf("Local send created.\n");
   
-  struct sockaddr_in recv_addr;
-  int recv_len;
-  struct sockaddr_in fwd_addr;
-  int fwd_len;
-  pdu p;
-  char str[100];
-  unsigned int send_check;
-  
-  circular_buffer *cb = &cb_s;
-  sliding_window *sw = &sw_s;
-  
-  set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
-  
-  while (1)
-    {  
-      // wait for pdu's to enter buffer
-      //printf("Waiting for packets to send\n");
-      sem_wait(&cb_full);
+	struct sockaddr_in recv_addr;
+	int recv_len;
+	struct sockaddr_in fwd_addr;
 
-      // wait for window to open
-      sem_wait(&sw_empty);
-      
-      // enter critical section
-      pthread_mutex_lock(&mutex);
+	int fwd_len;
+	pdu p;
+	char str[100];
+	unsigned int send_check;
+  
+	circular_buffer *cb = &cb_s;
+	sliding_window *sw = &sw_s;
+  
+	set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+  
+	while (1)
+	{  
+		// wait for pdu's to enter buffer
+		//printf("Waiting for packets to send\n");
+		sem_wait(&cb_full);
 
-      pdu * ptr = cb->buffer[sw->tail];
-      //send a pdu
-      printf("Sending pack...#%i\n", ptr->h.seq_num);
-      local_sent = sendto(r_sockfd, cb->buffer[sw->tail], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+		// wait for window to open
+		sem_wait(&sw_empty);
       
-      // mark as unacked
-      sw->packet_acks[sw->count] == UNACKED;
+		// enter critical section
+		pthread_mutex_lock(&mutex);
+
+		pdu * ptr = cb->buffer[sw->tail];
+		//send a pdu
+		printf("Sending pack...#%i\n", ptr->h.seq_num);
+		local_sent = sendto(r_sockfd, cb->buffer[sw->tail], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      
+		// mark as unacked
+		sw->packet_acks[sw->count] == UNACKED;
 	  
-	//START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT
-      /*  IGNORE TIMER FOR NOW
-	  printf("Adding to delta list seq# %i duration %i msec\n", ptr->h.seq_num, 10);
-      add_to_buffer(sw, cb, &p);
-      sprintf(str, "1 %i %i", ptr->h.seq_num, 100000);
+		//START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT
+		
+		printf("Adding to delta list seq# %i duration %i msec\n", ptr->h.seq_num, 10);
+		add_to_buffer(sw, cb, &p);
+		sprintf(str, "1 %i %i", ptr->h.seq_num, 100);
       
-	  send_check = send(dt_sockfd, str, 100, 0);*/
+		send_check = send(dt_sockfd, str, 100, 0);
+		
 
-
       
-      // extend tail of the window
-      progress_window_tail(sw,cb);
-      sw->count++;
+		// extend tail of the window
+		progress_window_tail(sw,cb);
+		sw->count++;
       
-      //exit critical section
-      pthread_mutex_unlock(&mutex);
+		//exit critical section
+		pthread_mutex_unlock(&mutex);
       
-      // let remote know it can listen for an ack
-      sem_post(&sw_full);
+		// let remote know it can listen for an ack
+		sem_post(&sw_full);
       
-    }
+	}
 }
 
 
 /* Listens on incoming remote traffic
-   and ack's pdu's 
- */
+and ack's pdu's 
+*/
 void* remote_listen(void *arg)
 {
-    printf("Remote listen created.\n");
+	printf("Remote listen created.\n");
   
-  char remote_buf[MAX_MES_LEN];
-  uint32_t remote_buflen;
-  struct sockaddr_in recv_addr;
-  int recv_len;
-  struct sockaddr_in fwd_addr;
-  int fwd_len;
-  struct sockaddr_in return_addr;
-  int return_len;
-  pdu p;
-  char str[100];
-  unsigned int send_check;
+	char remote_buf[MAX_MES_LEN];
+	uint32_t remote_buflen;
+	struct sockaddr_in recv_addr;
+	int recv_len;
+	struct sockaddr_in fwd_addr;
+	int fwd_len;
+	struct sockaddr_in return_addr;
+	int return_len;
+	pdu p;
+	char str[100];
+	unsigned int send_check;
 
   
-  circular_buffer *cb;
-  sliding_window* sw;
+	circular_buffer *cb = &cb_r;
+	sliding_window* sw = &sw_r;
+  
+	// initialize receive buffer and window
+	cb_init(cb);
+	sw_init(sw, cb);
 
-  while (1)
-    {
-      // clear pdu
-      memset(&p, 0x00, sizeof(pdu));
+	while (1)
+	{
+		// clear pdu
+		memset(&p, 0x00, sizeof(pdu));
       
-      // get next packet
-      if ((remote_recv = recvfrom(r_sockfd, remote_buf , MAX_MES_LEN, 0, (struct sockaddr *)&recv_addr, (socklen_t *)&recv_len))<0)
-	{
-	  perror("recv");
-	  exit(1);
-	}
-      // put into pdu and verify checksum
-      memcpy(&p, &remote_buf, remote_recv);
-      uint16_t r_checksum =  p.h.chk;
-      uint16_t checksum;
-      memset(&p.h.chk, 0x00, sizeof(p.h.chk));
-      checksum = calc_checksum((char*)&p, MAX_MES_LEN);
+		// get next packet
+		if ((remote_recv = recvfrom(r_sockfd, remote_buf , MAX_MES_LEN, 0, (struct sockaddr *)&recv_addr, (socklen_t *)&recv_len))<0)
+		{
+			perror("recv");
+			exit(1);
+		}
+		// put into pdu and verify checksum
+		memcpy(&p, &remote_buf, remote_recv);
+		uint16_t r_checksum =  p.h.chk;
+		uint16_t checksum;
+		memset(&p.h.chk, 0x00, sizeof(p.h.chk));
+		checksum = calc_checksum((char*)&p, MAX_MES_LEN);
 
-      // process packet if checksums match
-      if (checksum == r_checksum)
-	{
-	  // ack from other remote
-	  if (p.h.flags & ACK)
-	    {
-	      printf("Received ACK#%i\n" ,p.h.ack_num);
-	      cb = &cb_s;
-	      sw = &sw_s;
-	      ack = p.h.ack_num;
-	      
-	      // filter duplicate ACKs
-		pthread_mutex_lock(&mutex);
-	      if ((markPDUAcked(ack, sw, cb)) ==0)
+		// process packet if checksums match
+		if (checksum == r_checksum)
+		{
+			// ack from other remote
+			if (p.h.flags & ACK)
 			{
-		  //printf("ACK is genuine.\n");
-			
-		/*	IGNORE TIMER FOR NOW
-     		 sprintf(str, "2 %i", ack_seq);
-      		 send_check = send(dt_sockfd, str, 100, 0);
-		  */		  
-		  //progress heads and signal window slide
-			sem_wait(&sw_full);
-			  update_window(sw, cb, &sw_empty, &cb_empty);
-		  
-		  //exit critical section
-			}
-		 pthread_mutex_unlock(&mutex);
-	    }
-	  // datagram from other remote
-	  else
-	    {
-			cb = &cb_r;
-			sw = &sw_r;
-			ack = p.h.seq_num;
-			
-			/*
-			Need to implement logic to place a pdu in the window, and progress heads, just like on client side
-			As the heads progress, the dataloads will be remote_sent
-			*/
-			
-	      //send to
-	      set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ; 
-	      remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len); 
+				printf("Received ACK#%i\n" ,p.h.ack_num);
+				cb = &cb_s;
+				sw = &sw_s;
+				ack = p.h.ack_num;
 	      
-	      //send ack
+				// filter duplicate ACKs
+				pthread_mutex_lock(&mutex);
+				if ((markPDUAcked(ack, sw, cb)) ==0)
+				{
+					//printf("ACK is genuine.\n");
+			
+					
+					sprintf(str, "2 %i", ack);
+					send_check = send(dt_sockfd, str, 100, 0);
+							  
+					//progress heads and signal window slide
+					sem_wait(&sw_full);
+					update_window(sw, cb, &sw_empty, &cb_empty);
+		  
+					//exit critical section
+				}
+				pthread_mutex_unlock(&mutex);
+			}
+			// datagram from other remote
+			else
+			{
+				cb = &cb_r;
+				sw = &sw_r;
+				ack = p.h.seq_num;
+			
+				/*
+				Need to implement logic to place a pdu in the window, and progress heads, just like on client side
+				As the heads progress, the dataloads will be remote_sent
+				*/
+			
+				//ensure this isn't a duplicate
+			/*	if ((markPDUAcked(p.h.seq_num, sw, cb))==0)
+				{
+					printf("Packet is genuine.\n");
+					// wait for room in buffer
+					sem_wait(&cbr_empty);
 
-	      pdu ack_p;
-	      memset(&ack_p, 0x00, sizeof(pdu));
-	      build_pdu(&ack_p, NULL, &ack, NULL, 0);	      
-	      set_ack_addr(&return_addr, &return_len, R_PORT) ; 
-	      //printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
-		  usleep(40000);
-	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len); 
+					// enter critical section
+					pthread_mutex_lock(&rmutex);
 
-	    }
+					printf("Adding to receive buffer.\n");
+					add_to_r_buffer(sw, cb, &p);
+					update_r_window(sw, cb, &sw_empty, &cb_empty);
+
+					// exit critical section
+					pthread_mutex_unlock(&rmutex);
+
+					// let window know there is more to send
+					sem_post(&cbr_full);
+				}*/
+				//send to
+				set_fwd_addr(&fwd_addr, &fwd_len, L_PORT) ; 
+				remote_sent = sendto(l_sockfd, p.data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len); 
+	      
+				//send ack
+
+				pdu ack_p;
+				memset(&ack_p, 0x00, sizeof(pdu));
+				build_pdu(&ack_p, NULL, &ack, NULL, 0);	      
+				set_ack_addr(&return_addr, &return_len, R_PORT) ; 
+				//printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
+				usleep(40000);
+				remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len); 
+
+
+
+				}
+			}
+			else 
+			{
+				printf("Checksums did not match\n");
+			}
+		}
 	}
-      else 
+
+
+
+
+	/* Builds pdu from buffer
+	*/
+	void build_pdu(pdu* p, uint32_t* sequence, uint32_t* ack, char* buf, ssize_t buflen)
 	{
-	  printf("Checksums did not match\n");
+		p->h. s_port = R_PORT;
+		p->h. d_port = T_PORT;
+		p->h.win = WINDOW_SIZE;
+		if (sequence == NULL)
+		{
+			p->h. flags += ACK;
+			p->h.ack_num = *ack;
+		} 
+		else if (ack == NULL)
+		{
+			p->h.seq_num = *sequence;
+			memcpy(p->data, buf, buflen);
+		}
+		else 
+		{
+			// must ACK or SEQ for this program
+			perror("TCPD: error building pdu Must be ACK or SEQ.");
+			exit(1);
+		}
+  
+		p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
 	}
-    }
-}
-
-
-
-
-/* Builds pdu from buffer
- */
-void build_pdu(pdu* p, uint32_t* sequence, uint32_t* ack, char* buf, ssize_t buflen)
-{
-  p->h. s_port = R_PORT;
-  p->h. d_port = T_PORT;
-  p->h.win = WINDOW_SIZE;
-  if (sequence == NULL)
-    {
-      p->h. flags += ACK;
-      p->h.ack_num = *ack;
-    } 
-  else if (ack == NULL)
-    {
-      p->h.seq_num = *sequence;
-      memcpy(p->data, buf, buflen);
-    }
-  else 
-    {
-      // must ACK or SEQ for this program
-      perror("TCPD: error building pdu Must be ACK or SEQ.");
-      exit(1);
-    }
   
-  p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
-}
+	void initialize_semaphores()
+	{
+		// initialize cb semaphores
+		int i = sem_init(&cb_full, 0, 0);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
+		i = sem_init(&cb_empty, 0,  64);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
   
-void initialize_semaphores()
-{
-  // initialize cb semaphores
-  int i = sem_init(&cb_full, 0, 0);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-  i = sem_init(&cb_empty, 0,  64);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-  
-  // initialize sw semaphores
-  i = sem_init(&sw_full, 0, 0);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-  i = sem_init(&sw_empty, 0,  20);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
+		// initialize sw semaphores
+		i = sem_init(&sw_full, 0, 0);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
+		i = sem_init(&sw_empty, 0,  20);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
 
-  // initialize receive semaphores
+		// initialize receive semaphores
 
-  i = sem_init(&cbr_full, 0, 0);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-  i = sem_init(&cbr_empty, 0,  64);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
+		i = sem_init(&cbr_full, 0, 0);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
+		i = sem_init(&cbr_empty, 0,  64);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
   
-  // initialize sw semaphores
-  i = sem_init(&swr_full, 0, 0);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-  i = sem_init(&swr_empty, 0,  20);
-  if (i<0){
-    perror("Error: unable to create semaphore");
-    exit(1);
-  }
-}
+		// initialize sw semaphores
+		i = sem_init(&swr_full, 0, 0);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
+		i = sem_init(&swr_empty, 0,  20);
+		if (i<0){
+			perror("Error: unable to create semaphore");
+			exit(1);
+		}
+	}
