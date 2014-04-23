@@ -34,7 +34,7 @@ should receive acks and progress head, send pdu's and progress tail
 
 /* ===============Global Variables========= */
 
-//uint32_t seq = 0;
+uint32_t seq = 0;
 uint32_t ack = 0;
 
 circular_buffer cb_r;
@@ -57,6 +57,10 @@ ssize_t remote_sent = 0;
 pthread_mutex_t mutex;
 sem_t cb_full, cb_empty; 
 sem_t sw_full, sw_empty; 
+
+pthread_mutex_t rmutex;
+sem_t cbr_full, cbr_empty; 
+sem_t swr_full, swr_empty; 
 pthread_t tid[NUM_THREADS];
 
 
@@ -72,7 +76,7 @@ void* local_listen(void *);
 void* local_send(void *);
 void* remote_listen(void *);
 void* listen_to_timer_socket();
-void build_pdu(pdu* p, int* sequence, uint32_t* ack, char* buf, ssize_t buflen);
+void build_pdu(pdu* p, uint32_t* sequence, uint32_t* ack, char* buf, ssize_t buflen);
 void unpack_pdu(pdu* p, header* h, char* buf, int buflen);
 void initialize_semaphores();
 
@@ -277,6 +281,8 @@ void* listen_to_timer_socket(){
         if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
             str[t] = '\0';
             printf("timeout received : %s", str);
+	    //take the packet number modded with the size of buffer
+	    //resend the packet in that position
         } else {
             if (t < 0) perror("recv");
             else printf("Server closed connection\n");
@@ -298,7 +304,6 @@ void* local_listen(void *arg)
   struct sockaddr_in fwd_addr;
   int fwd_len;
   pdu p;
-  int seq = 0;
   
   circular_buffer *cb = &cb_s;
   sliding_window* sw = &sw_s;
@@ -368,7 +373,7 @@ void* local_send(void *arg)
   while (1)
     {  
       // wait for pdu's to enter buffer
-      printf("Waiting for packets to send\n");
+      //printf("Waiting for packets to send\n");
       sem_wait(&cb_full);
 
       // wait for window to open
@@ -459,11 +464,11 @@ void* remote_listen(void *arg)
 	      printf("Received ACK#%i\n" ,p.h.ack_num);
 	      cb = &cb_s;
 	      sw = &sw_s;
-	      int ack_seq = p.h.ack_num;
+	      ack = p.h.ack_num;
 	      
 	      // filter duplicate ACKs
 		pthread_mutex_lock(&mutex);
-	      if ((markPDUAcked(ack_seq, sw, cb)) ==0)
+	      if ((markPDUAcked(ack, sw, cb)) ==0)
 			{
 		  //printf("ACK is genuine.\n");
 			
@@ -484,7 +489,7 @@ void* remote_listen(void *arg)
 	    {
 			cb = &cb_r;
 			sw = &sw_r;
-			int seq = p.h.seq_num;
+			ack = p.h.seq_num;
 			
 			/*
 			Need to implement logic to place a pdu in the window, and progress heads, just like on client side
@@ -499,7 +504,7 @@ void* remote_listen(void *arg)
 
 	      pdu ack_p;
 	      memset(&ack_p, 0x00, sizeof(pdu));
-	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
+	      build_pdu(&ack_p, NULL, &ack, NULL, 0);	      
 	      set_ack_addr(&return_addr, &return_len, R_PORT) ; 
 	      //printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
 		  usleep(40000);
@@ -519,7 +524,7 @@ void* remote_listen(void *arg)
 
 /* Builds pdu from buffer
  */
-void build_pdu(pdu* p, int* sequence, uint32_t* ack, char* buf, ssize_t buflen)
+void build_pdu(pdu* p, uint32_t* sequence, uint32_t* ack, char* buf, ssize_t buflen)
 {
   p->h. s_port = R_PORT;
   p->h. d_port = T_PORT;
@@ -565,6 +570,31 @@ void initialize_semaphores()
     exit(1);
   }
   i = sem_init(&sw_empty, 0,  20);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+
+  // initialize receive semaphores
+
+  i = sem_init(&cbr_full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&cbr_empty, 0,  64);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  
+  // initialize sw semaphores
+  i = sem_init(&swr_full, 0, 0);
+  if (i<0){
+    perror("Error: unable to create semaphore");
+    exit(1);
+  }
+  i = sem_init(&swr_empty, 0,  20);
   if (i<0){
     perror("Error: unable to create semaphore");
     exit(1);
