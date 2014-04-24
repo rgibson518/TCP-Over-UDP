@@ -287,24 +287,34 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 /*Listens to socket to make connection with delta timer
 */
 
-void* listen_to_timer_socket(void *arg)
-{
-  int mode;
-  int n, rc;
-  unsigned int t, port, packet, duration;
-  char *token, *search = " ";
-  char str[100];
-  
-  /*while(1){
-    if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
-    str[t] = '\0';
-    printf("timeout received : %s", str);
-    } else {
-    if (t < 0) perror("recv");
-    else printf("Server closed connection\n");
-    exit(1);
-    }
-    }*/
+void* listen_to_timer_socket(void *arg){
+/*	int mode;
+	int sequence, rc;
+	unsigned int t, port, packet, duration;
+	char *token, *search = " ";
+	char str[100];
+	ssize_t pdu_resent = 0;
+	int fwd_len;
+	struct sockaddr_in fwd_addr;
+	set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+	circular_buffer *cb = &cb_s;
+
+	while(1){
+		if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
+			str[t] = '\0';
+			printf("timeout received : %s", str);
+
+			//take the packet number modded with the size of buffer
+			//resend the packet in that position
+			sscanf(str, "%d", &sequence);
+			sequence = sequence % BUFFER_SIZE;
+			pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+			} else {
+				if (t < 0) perror("recv");
+				else printf("Server closed connection\n");
+				exit(1);
+			}
+		}*/
 }
 
 /* Listens for incoming local traffic
@@ -393,7 +403,7 @@ void* local_send(void *arg)
       printf("Waiting for packets to send\n");
       sem_wait(&cb_full);
 
-      // wait for window to open
+      // wait for window to have contents
       sem_wait(&sw_empty);
       
       // enter critical section
@@ -456,11 +466,12 @@ void* remote_listen(void *arg)
 
 
   
-  // initialize send buffer and window
+  // initialize receive buffer and window
   cb_init(cb);
   sw_init(sw, cb);
   sw->tail = sw->head + 20;
-
+  cb->tail = cb->head + 64;
+  
   while (1)
     {
       // clear pdu
@@ -523,38 +534,27 @@ void* remote_listen(void *arg)
 	      
 	      //ensure this isn't a duplicate
       	      if ((markPDURecv(p.h.seq_num, sw, cb))==0)
-		{
-		  //printf("Packet is genuine.\n");
+			{
+				//printf("Packet is genuine.\n");
 		  
-		  // ensure open slot in window
-		  sem_wait(&swr_empty);
-		  //sem_wait(&cbr_empty);
-		  // enter critical section
-		  // printf("waiting on mutex\n");
-		  pthread_mutex_lock(&rmutex);
+				// ensure open slot in window and buffer
+				//sem_wait(&swr_empty);	
+				sem_wait(&cbr_empty);  
+				// enter critical section
+				// printf("waiting on mutex\n");
+				pthread_mutex_lock(&rmutex);
 		  
-		  printf("Adding to receive buffer.\n");
-		  add_to_r_buffer(sw, cb, &p);
-		  
-		  // send packets if window is full
-		  if (sw->count ==20) 
-		    {
-		      printf("======> Moving tail =====> %i\n", sw->tail +20l);
-		      sw->tail = (sw->tail + 20)%cb->capacity; 
-		      sem_post(&swr_full);
-		    }
-		  
-		  // exit critical section
-		  pthread_mutex_unlock(&rmutex);
-		  
-		  // let window know there is more to send
-		  //sem_post(&cbr_full);
-		  
-		}
+				printf("Adding to receive buffer.\n");
+				add_to_r_buffer(sw, cb, &p);
+				// exit critical section
+				pthread_mutex_unlock(&rmutex);
+				//sem_post(&swr_full);
+				sem_post(&cbr_full);
+			}
 	      else 
-		{
-		  printf("\t\t\tPACK SKIPPED %i\n", p.h.seq_num);
-		}
+			{
+			printf("\t\t\tPACK SKIPPED %i\n", p.h.seq_num);
+			}
 	      
 	    }
 	}
@@ -588,30 +588,36 @@ void* remote_send(void *arg)
   
   while (1)
     {  
-      // wait for window to open
-      sem_wait(&swr_full);
-      
-      // enter critical section
-      pthread_mutex_lock(&rmutex);
-      pdu * ptr = (pdu*)cb->buffer[sw->head];
-      int i = 0;
-      while (sw->count >0)
-	{
-	  //send a pdu
-	  printf("Sending pack...#%i\n", ptr->h.seq_num);
-	  local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
-	  sw->packet_acks[i]= 0;
-	  //progress heads
-	  progress_heads(sw, cb);
-	  printf("sw->head% i\n",sw->head);
-	  // printf("Adding space to sw\n");
-	  sem_post(&swr_empty);
-	  //sem_post(&cbr_empty);
-	  sw->count--;
-	  cb->count--;
-	  ptr = (pdu*)cb->buffer[sw->head];
-	}
-      pthread_mutex_unlock(&rmutex);
+		// wait for window to have contents (waiting on buffer full sem should be redundant here)
+		/*changed to cbr, thinking that the while check below will be ensuring that the
+		window has valid contents before trying to read them in, and in the remote receive function,
+		we might be adding a pdu into the buffer that is not necessarily going into the window, so, I
+		did not want to post to the window sem there*/
+		sem_wait(&cbr_full);
+      while (sw->packet_acks[sw->packet_acks_head_index]==ACKED)
+		{
+			// enter critical section
+			pthread_mutex_lock(&rmutex);
+		
+			pdu * ptr = (pdu*)cb->buffer[sw->head];
+			//send a pdu
+			printf("Reading pack...#%i\n", ptr->h.seq_num);
+			local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+		
+			sw->packet_acks[sw->packet_acks_head_index]= 0;
+	  
+			//progress_heads(sw, cb);
+			sw->head = (sw->head +1)%64;
+			progress_window_tail(sw, cb);
+	  
+			printf("sw->head% i\n",sw->head);
+			// printf("Adding space to sw\n");
+			//sw->count--;
+			cb->count--;
+			pthread_mutex_unlock(&rmutex);
+			//sem_post(&swr_empty);
+			sem_post(&cbr_empty);
+		}
     }
 }
 

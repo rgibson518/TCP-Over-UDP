@@ -35,6 +35,8 @@ typedef struct sliding_window
     // tracks index last sent pdu.
     int tail; 
     unsigned int head_sequence_num;
+	
+	unsigned int packet_acks_head_index;
 
     //number of pdu's in window
     unsigned int count;
@@ -82,6 +84,7 @@ void sw_init(sliding_window *win, circular_buffer *cb)
     win->count = 0;
     win->capacity = 20;
     win->head_sequence_num = 0;
+	win->packet_acks_head_index=0;
     for (i = 0; i < 20; i++)
     {
 	win->packet_acks[i] = 0;
@@ -119,7 +122,8 @@ int markPDURecv(int seqNumber, sliding_window *sw, circular_buffer *cb)
     
     
     int pos = seqNumber%cb->capacity;
-    int head = (sw->tail+cb->capacity - 20)%cb->capacity;
+    //int head = (sw->tail+cb->capacity - 20)%cb->capacity;
+	int head = sw->head;
     //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
     // if duplicate ack
     if ((sw->packet_acks[pos-head] ==1))
@@ -129,8 +133,14 @@ int markPDURecv(int seqNumber, sliding_window *sw, circular_buffer *cb)
     }
     else{
 	//printf("Successful ACK");
-	printf("Acking in position: %i\n", pos);
-	sw->packet_acks[pos] = ACKED;
+	if (head > pos){
+		printf("Acking in position: %i\n", cb->capacity-head+pos);
+		sw->packet_acks[cb->capacity-head+pos] = ACKED;
+	}
+	else{
+		printf("Acking in position: %i\n", pos-head);
+		sw->packet_acks[pos-head] = ACKED;
+	}
 	return 0;
     }
 }
@@ -166,34 +176,19 @@ void update_r_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem)
     int frame_acked = sw->packet_acks[0];
     
     while (i < initial_window_count && frame_acked == 1)
-{
-	
-	sw->count --;
-	cb->count --;
-	sw->packet_acks[i] = 0;
-	i++;
-	sem_post(sw_sem);
-	if (i < 20){
-	    frame_acked = sw->packet_acks[i];	
-	}
+	{
+		//Maybe do send to local port here if possible
+		progress_heads(sw, cb);
+		sw->count --;
+		cb->count --;
+		sw->packet_acks[i] = 0;
+		i++;
+		sem_post(sw_sem);
+		if (i < 20){
+			frame_acked = sw->packet_acks[i];	
+		}
     }
 }
-
-/*
-void send_available_packets(sliding_window *sw, circular_buffer *cb)
-{
-    while ( sw->count < sw->capacity && sw->tail != cb->tail)
-{
-	
-	  TODO  SEND PDU IN FRONT OF TAIL
-	
-	int window_count = sw->count;
-	sw->packet_acks[window_count] == 0;
-	progress_window_tail(sw,cb);
-	sw->count++;
-    }
-}*/
-
 
 void progress_buffer_tail(circular_buffer *cb)
 {
@@ -218,6 +213,7 @@ void add_to_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet)
  */
 void add_to_r_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet)
 {
+	//Need to make sure that this pdu is not at end of buffer and overwriting window contents
     if (cb->count == cb->capacity) {
 	perror("Buffer is Full");
 	exit(1);
@@ -225,9 +221,11 @@ void add_to_r_buffer(sliding_window *sw,circular_buffer *cb, pdu *packet)
     int pos = (packet->h.seq_num%cb->capacity);
     printf("Placing into %i buffer[%i]\n", packet->h.seq_num, pos);
     memcpy(cb->buffer[pos], packet, sizeof(pdu));
+	/*Need something more sophisticated than this to move tail.  maybe, we wont
+	move the tail at all*/
+	//if(pos==cb->tail) cb->tail = (cb->tail +1)%cb->capacity;
     cb->count++;
-    sw->count++;
-    
+    //sw->count++;
 }
 
 
@@ -237,7 +235,8 @@ void progress_window_tail(sliding_window *sw,circular_buffer *cb)
 }
 
 void progress_heads(sliding_window *sw,circular_buffer *cb)
-{
+{	
+	sw->packet_acks_head_index = (sw->packet_acks_head_index +1)%20;
     sw->head = (sw->head +1)%cb->capacity;
     cb->head = sw->head;
     sw->head_sequence_num ++; // or plus PDU_SIZE, depending on our decision
