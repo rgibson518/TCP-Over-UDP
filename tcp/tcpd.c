@@ -127,8 +127,6 @@ int main(int argc, char *argv[])
   sleep(1);
   struct sockaddr_un remote;
   char str[100];
-  int thread_id;
-  //	pthread_t	p_thread;
   
   if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
     perror("socket");
@@ -155,6 +153,7 @@ int main(int argc, char *argv[])
     them somehow.  this thread receives messages identifying which 
     packets have timed outs*/
   int i = 0;
+  int thread_id;
   thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
   i++;
   
@@ -297,7 +296,10 @@ void* listen_to_timer_socket(void *arg){
 	unsigned int send_check;
 	set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
 	circular_buffer *cb = &cb_s;
-/*
+
+	sprintf(str, "test string");
+	send_check = send(dt_sockfd, str, 100, 0);
+	
 	while(1){
 		if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
 			sequence = atoi(str);
@@ -308,7 +310,7 @@ void* listen_to_timer_socket(void *arg){
 			sequence = sequence % BUFFER_SIZE;
 			pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 			//set a new timer for pdu
-			sprintf(str, "1 %i %i", sequence, 40);
+			sprintf(str, "1 %i %i", sequence, 200);
 			send_check = send(dt_sockfd, str, 100, 0);
 			} else {
 				if (t < 0) perror("recv");
@@ -316,7 +318,6 @@ void* listen_to_timer_socket(void *arg){
 				exit(1);
 			}
 		}
-		*/
 }
 
 /* Listens for incoming local traffic
@@ -427,10 +428,10 @@ void* local_send(void *arg)
 	 
 		/*
 		seq = ptr->h.seq_num;
-	  sprintf(str, "1 %i %i", seq, 40);
+	  sprintf(str, "1 %i %i", seq, 200);
 	  
-	  send_check = send(dt_sockfd, str, 100, 0);
-      */
+	  send_check = send(dt_sockfd, str, 100, 0);*/
+      
       
       
       // extend tail of the window
@@ -508,10 +509,10 @@ void* remote_listen(void *arg)
 		  printf("ACK is genuine.\n");
 		  
 		  
-		  /*  
+		  /*
 		    sprintf(str, "2 %i", ack_seq);
-		    send_check = send(dt_sockfd, str, 100, 0);
-		  	*/
+		    send_check = send(dt_sockfd, str, 100, 0);*/
+		  	
 		
 		  //progress heads and signal window slide
 		  sem_wait(&sw_full);//Maybe comment this out
