@@ -262,8 +262,7 @@ int setup_socket(struct sockaddr_in* addr, int* addrlen,  int port)
 
  
 void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
-{
-   
+{ 
   *f_addrlen = sizeof(struct sockaddr_in);
    
   memset(f_addr, '\0', *f_addrlen);
@@ -288,33 +287,36 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 */
 
 void* listen_to_timer_socket(void *arg){
-/*	int mode;
+	int mode;
 	int sequence, rc;
 	unsigned int t, port, packet, duration;
-	char *token, *search = " ";
 	char str[100];
 	ssize_t pdu_resent = 0;
 	int fwd_len;
 	struct sockaddr_in fwd_addr;
+	unsigned int send_check;
 	set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
 	circular_buffer *cb = &cb_s;
-
+/*
 	while(1){
 		if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
-			str[t] = '\0';
-			printf("timeout received : %s", str);
+			sequence = atoi(str);
+			printf("timeout received : %i", sequence);
 
 			//take the packet number modded with the size of buffer
 			//resend the packet in that position
-			sscanf(str, "%d", &sequence);
 			sequence = sequence % BUFFER_SIZE;
 			pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+			//set a new timer for pdu
+			sprintf(str, "1 %i %i", sequence, 40);
+			send_check = send(dt_sockfd, str, 100, 0);
 			} else {
 				if (t < 0) perror("recv");
 				else printf("Server closed connection\n");
 				exit(1);
 			}
-		}*/
+		}
+		*/
 }
 
 /* Listens for incoming local traffic
@@ -368,11 +370,12 @@ void* local_listen(void *arg)
       pthread_mutex_lock(&mutex);
       printf("Adding to buffer seq#%i\n", seq-1);
       add_to_buffer(sw, cb, &p);
+	  // signal pdu has been put in buffer
+      sem_post(&cb_full);
       // exit cirital sectio
       pthread_mutex_unlock(&mutex);    
 
-      // signal pdu has been put in buffer
-      sem_post(&cb_full);
+
     }
 }
 
@@ -391,11 +394,13 @@ void* local_send(void *arg)
   pdu p;
   char str[100];
   unsigned int send_check;
+  int seq;
   
   circular_buffer *cb = &cb_s;
   sliding_window *sw = &sw_s;
   
-  set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+   //set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+  set_fwd_addr(&fwd_addr, &fwd_len, T_PORT);
   
   while (1)
     {  
@@ -417,26 +422,26 @@ void* local_send(void *arg)
       // mark as unacked
       sw->packet_acks[sw->count] == UNACKED;
       
-      //START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT
-      /*  IGNORE TIMER FOR NOW
-	  printf("Adding to delta list seq# %i duration %i msec\n", ptr->h.seq_num, 10);
-	  add_to_buffer(sw, cb, &p);
-	  sprintf(str, "1 %i %i", ptr->h.seq_num, 100000);
+      //START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT  
+	  //why?  add_to_buffer(sw, cb, &p);
+	 
+		/*
+		seq = ptr->h.seq_num;
+	  sprintf(str, "1 %i %i", seq, 40);
 	  
-	  send_check = send(dt_sockfd, str, 100, 0);*/
-      
+	  send_check = send(dt_sockfd, str, 100, 0);
+      */
       
       
       // extend tail of the window
       progress_window_tail(sw,cb);
       sw->count++;
       
-      //exit critical section
-      pthread_mutex_unlock(&mutex);
-      
-      // let remote know it can listen for an ack
+	  // let remote know it can listen for an ack
       sem_post(&sw_full);
-      
+	  
+      //exit critical section
+      pthread_mutex_unlock(&mutex); 
     }
 }
 
@@ -460,11 +465,8 @@ void* remote_listen(void *arg)
   char str[100];
   unsigned int send_check;
 
-  
   circular_buffer *cb = &cb_r;
   sliding_window* sw = &sw_r;
-
-
   
   // initialize receive buffer and window
   cb_init(cb);
@@ -503,15 +505,16 @@ void* remote_listen(void *arg)
 	      // filter duplicate ACKs
 	      if ((markPDUAcked(ack_seq, sw, cb)) ==0)
 		{
-		  //printf("ACK is genuine.\n");
+		  printf("ACK is genuine.\n");
 		  
-		  /*
-		    IGNORE TIMER FOR NOW
+		  
+		  /*  
 		    sprintf(str, "2 %i", ack_seq);
 		    send_check = send(dt_sockfd, str, 100, 0);
-		  */		  
+		  	*/
+		
 		  //progress heads and signal window slide
-		  sem_wait(&sw_full);
+		  sem_wait(&sw_full);//Maybe comment this out
 		  update_window(sw, cb, &sw_empty, &cb_empty);
 		  
 		  //exit critical section
@@ -528,7 +531,8 @@ void* remote_listen(void *arg)
 	      pdu ack_p;
 	      memset(&ack_p, 0x00, sizeof(pdu));
 	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
-	      set_ack_addr(&return_addr, &return_len, R_PORT) ; 
+	      //set_ack_addr(&return_addr, &return_len, R_PORT) ; 
+		  set_ack_addr(&return_addr, &return_len, T_PORT) ; 
 	      printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
 	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len);  
 	      
@@ -604,7 +608,7 @@ void* remote_send(void *arg)
 			printf("Reading pack...#%i\n", ptr->h.seq_num);
 			local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 		
-			sw->packet_acks[sw->packet_acks_head_index]= 0;
+			sw->packet_acks[sw->packet_acks_head_index]= UNACKED;
 	  
 			//progress_heads(sw, cb);
 			sw->head = (sw->head +1)%64;
