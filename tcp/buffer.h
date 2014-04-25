@@ -220,12 +220,14 @@ void update_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t
     int frame_acked = sw->packet_acks[i];
     
     while (j < initial_window_count && frame_acked == 1  && sw->head != sw->tail)
+	//while (frame_acked == ACKED)
+    //while (frame_acked == 1  && sw->head != sw->tail)
     {
 	
 	progress_heads(sw, cb);
 	sw->count --;
 	cb->count --;
-	sw->packet_acks[i] = 0;
+	sw->packet_acks[i] = UNACKED;
 	i = (i++)%64;
 	j++;
 	
@@ -293,7 +295,7 @@ void progress_window_tail(sliding_window *sw,circular_buffer *cb)
 
 void progress_heads(sliding_window *sw,circular_buffer *cb)
 {	
-    sw->packet_acks_head_index = (sw->packet_acks_head_index +1)%20;
+    //sw->packet_acks_head_index = (sw->packet_acks_head_index +1)%20;
     sw->head = (sw->head +1)%cb->capacity;
     cb->head = sw->head;
     sw->head_sequence_num ++; // or plus PDU_SIZE, depending on our decision

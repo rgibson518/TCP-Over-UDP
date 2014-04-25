@@ -227,7 +227,7 @@ void* listen_to_timer_socket(void *arg){
     if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
 		sequence = atoi(str);
 		if (sequence >= sw->head_sequence_num){
-		printf("timeout received : %i", sequence);
+		printf("timeout received : %i\n", sequence);
       
 	  
 		//take the packet number modded with the size of buffer
@@ -295,15 +295,14 @@ void* local_listen(void *arg)
       printf("LL: waiting on mutex.\n");
       pthread_mutex_lock(&mutex);
       printf("LL: mutex locked.\n");
-      //printf("Adding to buffer seq#%i\n", seq-1);
+      printf("Adding to buffer seq#%i\n", seq-1);
       add_to_buffer(sw, cb, &p);
-
-      // exit cirital sectio
-      printf("LL:Unlocking mutex\n");
-      pthread_mutex_unlock(&mutex);    
-      
-      // signal pdu has been put in buffer
+   
+	  // signal pdu has been put in buffer
       sem_post(&cb_full);
+      printf("LL:Unlocking mutex\n");
+	  // exit cirital sectio
+      pthread_mutex_unlock(&mutex);    
     }
 }
 
@@ -353,7 +352,7 @@ void* local_send(void *arg)
       local_sent = sendto(r_sockfd, ptr, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
       printf("LS: packet sent.\n");
       // mark as unacked
-      sw->packet_acks[sw->count] == UNACKED;
+      sw->packet_acks[ptr->h.seq_num%cb->capacity] == UNACKED;
       
       //START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT  
 		
@@ -526,6 +525,7 @@ void* remote_send(void *arg)
   struct sockaddr_in fwd_addr;
   int fwd_len;
   pdu p;
+  int sequence = 0;
   
   circular_buffer *cb = &cb_r;
   sliding_window* sw = &sw_r;
@@ -552,6 +552,7 @@ void* remote_send(void *arg)
 	  printf("RS: Reading pack...#%i\n", ptr->h.seq_num);
 	  local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 	  sw->r_packet_acks[sw->head]= UNACKED;
+	  sw->head_sequence_num++;
 	  sw->head = (sw->head +1)%cb->capacity;
 	  sem_post(&cbr_empty);
 	}
