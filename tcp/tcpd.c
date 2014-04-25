@@ -103,6 +103,7 @@ void add_checksum(pdu *p);
 // initialization helpers
 void initialize_semaphores();
 void initialize_rto();
+void initialize_delta_timer();
 
 
 
@@ -111,129 +112,81 @@ void initialize_rto();
 /* Daemon service*/
 int main(int argc, char *argv[]) 
 {
+
+  //set default values for rto 
   initialize_rto();
-  //***************Fork and connect to delta timer ***************************/
+  initialize_delta_timer();
+  initialize_semaphores();
   
-    int pid;
-    int count = 0;
-    char *argv2[] = { NULL };
-    char *newarg[] = {"./dt", NULL};
+  // initialize send buffers and windows
+  circular_buffer *cb = &cb_r;
+  sliding_window* sw = &sw_r;
+  cb_init(cb);
+  sw_init(sw, cb);
+  
+  cb = cb_s;
+  sw= sw_s;
+  cb_init(cb);
+  sw_init(sw,cb);
   
   
-    circular_buffer *cb = &cb_r;
-    sliding_window* sw = &sw_r;
+  struct sockaddr_in local_addr;
+  int local_len;
+  struct sockaddr_in remote_addr;		
+  int remote_len;	
+  l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
+  r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
   
-    // initialize send buffer and window
-    cb_init(cb);
-    sw_init(sw, cb);
   
-    pid = fork();
-    if (pid == 0){
-    
-      if ( execve("./dt", newarg, argv2) )
-	{
-	  printf("execv failed with error %d %s\n",errno,strerror(errno));
-	  return 254;  
-	}
-    
+  /* create local and remote sockets */
+  
+  int i = 0;
+  int thread_id;
+  thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
+  i++;
+  
+  
+  int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
+  if (l_thread != 0)
+    {
+      printf("Error creating local listener#%i\n",i);
+      exit(1);
     }
-  
-    sleep(1);
-    char str[100];
-  
-    if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
-      perror("socket");
+  i++;
+  int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
+  if (ls_thread != 0)
+    {
+      printf("Error creating local sender#%i\n",i);
+      exit(1);
+    }
+  i++;
+  int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
+  if (r_thread != 0)
+    {
+      printf("Error creating remote listener #%i\n",i);
+      exit(1);
+    }
+  i++;
+  int rs_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
+  if (rs_thread != 0)
+    {
+      printf("Error creating remote listener #%i\n",i);
       exit(1);
     }
   
-    printf("Trying to connect to timer...\n");
-  
-    remote.sun_family = AF_UNIX;
-    strcpy(remote.sun_path, "mysocket2");
-    len = strlen(remote.sun_path) + sizeof(remote.sun_family);
-    if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
-      perror("connect");
-      exit(1);
+  //wait for any Timeouts
+  //join back together threads
+  int j;
+  for (j = 0;j < NUM_THREADS; j++) 
+    {
+      i = pthread_join(tid[j],NULL);
+      if (i!=0)
+	{
+	  printf("Error: unable to join thread");
+	  exit(1);
+	} 
     }
-  
-    printf("Connected to timer.\n");
-    /*int n = recv(dt_sockfd, str, 100, 0);
-      n = atoi(str);
-      printf("%i",n);*/
-  
-  
-    /*As of now, this is setting up a thread to listen to the socket on 
-      dt_sockfd.  We need to make that listening occur somewhere in one of
-      our existing threads, or make the thread that is created here interact with
-      them somehow.  this thread receives messages identifying which 
-      packets have timed outs*/
-    int i = 0;
-    int thread_id;
-    thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
-    i++;
-  
-  
-    //*****************************END OF CONNECTING TO DELTA TIMER***************
-      
-      
-      
-	fd_set read_fd_set;
-  
-    struct sockaddr_in local_addr;
-    int local_len;			
-  
-    struct sockaddr_in remote_addr;		
-    int remote_len;	
-  
- 
-    initialize_semaphores();
-    
-    /* create local and remote sockets */
-      l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
-      r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
-  
-  
-      int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
-      if (l_thread != 0)
-	{
-	  printf("Error creating local listener#%i\n",i);
-	  exit(1);
-	}
-      i++;
-      int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
-      if (ls_thread != 0)
-	{
-	  printf("Error creating local sender#%i\n",i);
-	  exit(1);
-	}
-      i++;
-      int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
-      if (r_thread != 0)
-	{
-	  printf("Error creating remote listener #%i\n",i);
-	  exit(1);
-	}
-      i++;
-      int rp_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
-      if (rp_thread != 0)
-	{
-	  printf("Error creating remote listener #%i\n",i);
-	  exit(1);
-	}
-  
-      //wait for any Timeouts
-      //join back together threads
-      int j;
-      for (j = 0;j < NUM_THREADS; j++) 
-	{
-	  i = pthread_join(tid[j],NULL);
-	  if (i!=0)
-	    {
-	      printf("Error: unable to join thread");
-	      exit(1);
-	    } 
-	}
-      printf("Threads joined.\n");
+  printf("Threads joined.\n");
 }
 
 
@@ -771,4 +724,59 @@ void initialize_semaphores()
     perror("Error: unable to create semaphore");
     exit(1);
   }
+}
+
+void initialize_delta_timer()
+{
+  
+  int pid;
+  int count = 0;
+  char *argv2[] = { NULL };
+  char *newarg[] = {"./dt", NULL};
+  
+  
+  
+  pid = fork();
+  if (pid == 0){
+    
+    if ( execve("./dt", newarg, argv2) )
+      {
+	printf("execv failed with error %d %s\n",errno,strerror(errno));
+	return 254;  
+      }
+    
+  }
+  
+  sleep(1);
+  char str[100];
+  
+  if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    perror("socket");
+    exit(1);
+  }
+  
+  printf("Trying to connect to timer...\n");
+  
+  remote.sun_family = AF_UNIX;
+  strcpy(remote.sun_path, "mysocket2");
+  len = strlen(remote.sun_path) + sizeof(remote.sun_family);
+  if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
+    perror("connect");
+    exit(1);
+  }
+  
+  printf("Connected to timer.\n");
+
+
+  /*int n = recv(dt_sockfd, str, 100, 0);
+    n = atoi(str);
+    printf("%i",n);*/
+  
+  
+  /*As of now, this is setting up a thread to listen to the socket on 
+      dt_sockfd.  We need to make that listening occur somewhere in one of
+      our existing threads, or make the thread that is created here interact with
+      them somehow.  this thread receives messages identifying which 
+      packets have timed outs*/
+  
 }
