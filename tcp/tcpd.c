@@ -46,6 +46,7 @@ sliding_window sw_s;
 unsigned int l_sockfd;
 unsigned int r_sockfd;
 unsigned int dt_sockfd;
+struct sockaddr_un remote;
 unsigned int len;
 
 ssize_t local_recv = 0;
@@ -125,7 +126,6 @@ int main(int argc, char *argv[])
   }
   
   sleep(1);
-  struct sockaddr_un remote;
   char str[100];
   
   if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
@@ -144,7 +144,9 @@ int main(int argc, char *argv[])
   }
   
   printf("Connected to timer.\n");
-  
+  /*int n = recv(dt_sockfd, str, 100, 0);
+  n = atoi(str);
+  printf("%i",n);*/
   
   
   /*As of now, this is setting up a thread to listen to the socket on 
@@ -294,11 +296,8 @@ void* listen_to_timer_socket(void *arg){
 	int fwd_len;
 	struct sockaddr_in fwd_addr;
 	unsigned int send_check;
-	set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+	set_fwd_addr(&fwd_addr, &fwd_len, T_PORT);
 	circular_buffer *cb = &cb_s;
-
-	sprintf(str, "test string");
-	send_check = send(dt_sockfd, str, 100, 0);
 	
 	while(1){
 		if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
@@ -310,7 +309,7 @@ void* listen_to_timer_socket(void *arg){
 			sequence = sequence % BUFFER_SIZE;
 			pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 			//set a new timer for pdu
-			sprintf(str, "1 %i %i", sequence, 200);
+			sprintf(str, "1 %i %i", sequence, 60);
 			send_check = send(dt_sockfd, str, 100, 0);
 			} else {
 				if (t < 0) perror("recv");
@@ -424,13 +423,11 @@ void* local_send(void *arg)
       sw->packet_acks[sw->count] == UNACKED;
       
       //START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT  
-	  //why?  add_to_buffer(sw, cb, &p);
-	 
-		/*
+		
 		seq = ptr->h.seq_num;
-	  sprintf(str, "1 %i %i", seq, 200);
+	  sprintf(str, "1 %i %i", seq, 70);
 	  
-	  send_check = send(dt_sockfd, str, 100, 0);*/
+	  send_check = send(dt_sockfd, str, 100, 0);
       
       
       
@@ -507,12 +504,10 @@ void* remote_listen(void *arg)
 	      if ((markPDUAcked(ack_seq, sw, cb)) ==0)
 		{
 		  printf("ACK is genuine.\n");
+		    
 		  
-		  
-		  /*
-		    sprintf(str, "2 %i", ack_seq);
-		    send_check = send(dt_sockfd, str, 100, 0);*/
-		  	
+		    sprintf(str, "2 %i 1", ack_seq);
+		    send_check = send(dt_sockfd, str, 100, 0);
 		
 		  //progress heads and signal window slide
 		  sem_wait(&sw_full);//Maybe comment this out
@@ -529,6 +524,7 @@ void* remote_listen(void *arg)
 	      sw = &sw_r;
 	      
 	      //send ack		  
+		  if(p.h.seq_num - sw->head_sequence_num <= 20){
 	      pdu ack_p;
 	      memset(&ack_p, 0x00, sizeof(pdu));
 	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
@@ -536,31 +532,33 @@ void* remote_listen(void *arg)
 		  set_ack_addr(&return_addr, &return_len, T_PORT) ; 
 	      printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
 	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len);  
-	      
-	      //ensure this isn't a duplicate
+	      				
+				//ensure this isn't a duplicate
       	      if ((markPDURecv(p.h.seq_num, sw, cb))==0)
 			{
-				//printf("Packet is genuine.\n");
-		  
-				// ensure open slot in window and buffer
-				//sem_wait(&swr_empty);	
 				sem_wait(&cbr_empty);  
 				// enter critical section
 				// printf("waiting on mutex\n");
 				pthread_mutex_lock(&rmutex);
+				//printf("Packet is genuine.\n");
+		  
+				// ensure open slot in window and buffer
+				//sem_wait(&swr_empty);	
+
 		  
 				printf("Adding to receive buffer.\n");
 				add_to_r_buffer(sw, cb, &p);
+				sem_post(&cbr_full);
 				// exit critical section
 				pthread_mutex_unlock(&rmutex);
 				//sem_post(&swr_full);
-				sem_post(&cbr_full);
 			}
 	      else 
 			{
 			printf("\t\t\tPACK SKIPPED %i\n", p.h.seq_num);
 			}
-	      
+
+	      }
 	    }
 	}
       else 
@@ -598,31 +596,39 @@ void* remote_send(void *arg)
 		window has valid contents before trying to read them in, and in the remote receive function,
 		we might be adding a pdu into the buffer that is not necessarily going into the window, so, I
 		did not want to post to the window sem there*/
+
+		printf("Waiting cbr_full\n");
 		sem_wait(&cbr_full);
-      while (sw->packet_acks[sw->packet_acks_head_index]==ACKED)
+		printf("Waiting on mutex\n");
+		pthread_mutex_lock(&rmutex);
+		printf("\t\t\tGOT HERE :  %i\n",sw->packet_acks[sw->head]);
+		if(sw->packet_acks[sw->head]==ACKED)
 		{
+
 			// enter critical section
-			pthread_mutex_lock(&rmutex);
+			printf("\t\t\tAND HERE\n");
 		
 			pdu * ptr = (pdu*)cb->buffer[sw->head];
 			//send a pdu
 			printf("Reading pack...#%i\n", ptr->h.seq_num);
 			local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 		
-			sw->packet_acks[sw->packet_acks_head_index]= UNACKED;
+			sw->packet_acks[sw->head]= UNACKED;
 	  
 			//progress_heads(sw, cb);
 			sw->head = (sw->head +1)%64;
+			sw->head_sequence_num ++;
 			progress_window_tail(sw, cb);
 	  
 			printf("sw->head% i\n",sw->head);
 			// printf("Adding space to sw\n");
 			//sw->count--;
 			cb->count--;
-			pthread_mutex_unlock(&rmutex);
 			//sem_post(&swr_empty);
 			sem_post(&cbr_empty);
 		}
+		else sem_post(&cbr_full);
+		pthread_mutex_unlock(&rmutex);
     }
 }
 

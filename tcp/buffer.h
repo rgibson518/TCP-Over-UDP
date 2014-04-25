@@ -44,6 +44,7 @@ typedef struct sliding_window
 
     // tracks ack'd packets with 1, unack'd with 0 : Use ACKED/UNACKED
     int packet_acks[20];
+	int r_packet_acks[64];
 } sliding_window;
 
 
@@ -89,6 +90,9 @@ void sw_init(sliding_window *win, circular_buffer *cb)
     {
 	win->packet_acks[i] = 0;
     }
+	for (i = 0; i<64; i++) {
+		win->r_packet_acks[i] = 0;
+	}
 }
 
 
@@ -99,19 +103,22 @@ int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
 {
     
     int pdu_index_in_window = seqNumber - sw->head_sequence_num;
+	sw->packet_acks[pdu_index_in_window] = ACKED;
+	return 0;
+	/*
     printf("Window head:\t%i\n", sw->head_sequence_num);
     printf("Sequence # to ACK:\t%i\n", seqNumber);
     //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
     // if duplicate ack
     if ( (pdu_index_in_window < 0) ||  (sw->packet_acks[pdu_index_in_window] ==1))
     {
-	return  -1;
+	return  0;//hack
     }
     else{
 		//printf("Successful ACK");
 	sw->packet_acks[pdu_index_in_window] = ACKED;
 	return 0;
-    }
+    }*/
 }
 
 /* Return -1 if duplicate, 0 if new ack
@@ -126,6 +133,44 @@ int markPDURecv(int seqNumber, sliding_window *sw, circular_buffer *cb)
 	int head = sw->head;
     //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
     // if duplicate ack
+	//Need to use index of head in ack
+	if (sw->packet_acks[pos]==1) return -1;
+	else{
+		sw->packet_acks[pos] = ACKED;
+		return 0;
+	}
+	
+	
+	
+	/*
+		if (pos > head){
+		if (pos - head > 20) return -1;
+		else if (sw->packet_acks[(sw->packet_acks_head_index + pos - head)%20]==1) return -1;
+		else{
+			sw->packet_acks[(sw->packet_acks_head_index + pos - head)%20] = ACKED;
+			return 0;
+		}
+	}
+	else if (pos == head){
+		if (sw->packet_acks[sw->packet_acks_head_index]==1) return -1;
+		else{
+			sw->packet_acks[sw->packet_acks_head_index]== ACKED;
+			return 0;
+		}
+	}
+	else if (pos < head){
+		if ((pos + 64 - head) >20) return -1;
+		else if(sw->packet_acks[(sw->packet_acks_head_index + pos + 64 - head)%20]==1) return -1;
+		else {
+			sw->packet_acks[(sw->packet_acks_head_index + pos + 64 - head)%20] = ACKED;
+			return 0;
+		}
+	}
+	
+	
+	
+	
+	
     if ((sw->packet_acks[pos-head] ==1))
     {
 	printf("Head = %i; Pos = %i; sw->packets+acks[pos-head] = %i\n", head, pos, sw->packet_acks[pos-head]);
@@ -142,7 +187,7 @@ int markPDURecv(int seqNumber, sliding_window *sw, circular_buffer *cb)
 		sw->packet_acks[pos-head] = ACKED;
 	}
 	return 0;
-    }
+    }*/
 }
 
 
