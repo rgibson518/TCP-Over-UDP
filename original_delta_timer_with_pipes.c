@@ -300,9 +300,9 @@ void* listen_to_socket(){
 
 void* do_timer()
 {
-	int rc;
-	while(1){
-		//if head is NULL, do nothing 
+  int rc;
+  while(1){
+    //if head is NULL, do nothing 
 		//mutex whole thing	
 		if (NULL == head) {
 			/*
