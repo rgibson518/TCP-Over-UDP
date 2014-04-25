@@ -5,6 +5,7 @@
 #define PDU_H
 
 #define PAYLOAD 968
+
 typedef struct pdu
 {
     header h;

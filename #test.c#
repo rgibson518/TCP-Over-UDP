@@ -20,7 +20,6 @@ int main ()
 {
   struct timeval  time;
   gettimeofday(&time, NULL);
-  printf("suseconds_t size = %i\n", sizeof(struct timeval));
   printf("Time of day (%i) or (%i)\n", time.tv_usec, time.tv_sec);
   uint32_t seq = 0xFFFFFFFF;
   char local_buf[1000-sizeof(header)];
@@ -59,7 +58,7 @@ int main ()
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
 {
   p->h. s_port = R_PORT;
-  p->h. d_port = T_PORT;
+  p->h. d_port = Tc time_PORT;
   p->h.win = WINDOW_SIZE;
   if (seq ==NULL)
     {

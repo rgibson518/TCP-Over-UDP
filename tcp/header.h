@@ -28,7 +28,7 @@ typedef struct header
     uint16_t win; 
     uint16_t chk; 
     uint16_t urg;
-    //    uint32_t opts[10]; //not sure if we need ops.. but could.
+    suseconds_t tsopt; //not sure if we need ops.. but could.
 }header;
 
 #endif

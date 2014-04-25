@@ -15,9 +15,9 @@
 #ifndef TCPD_H
 #define TCPD_H
 
-#define L_PORT 10001 //Daemon port (local)
-#define R_PORT 15001 //Remote port
-#define T_PORT 20001 //Troll port
+#define L_PORT 10002 //Daemon port (local)
+#define R_PORT 15002 //Remote port
+#define T_PORT 20002 //Troll port
 
 #define S_ADDR "164.107.112.71"  //epsilon.cse.ohio-state.edu
 #define C_ADDR "164.107.112.73"  //eta.cse.ohio-state.edu

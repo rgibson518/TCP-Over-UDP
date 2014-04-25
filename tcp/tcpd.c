@@ -37,6 +37,13 @@ should receive acks and progress head, send pdu's and progress tail
 //uint32_t seq = 0;
 uint32_t ack = 0;
 
+// rto stuff
+int m, srtt, rttvar, err;
+int g = 3;
+int h = 2; 
+time_t baseline; 
+struct timeval timestamp;
+
 circular_buffer cb_r;
 sliding_window sw_r;
 circular_buffer cb_s;
@@ -86,10 +93,13 @@ void* listen_to_timer_socket(void *);
 
 //pdu methods
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
+void add_ts_chksum(pdu *p);
+void add_timestamp(pdu *p);
+void add_checksum(pdu *p);
 
-// initidalization helpers
+// initialization helpers
 void initialize_semaphores();
-
+void initialize_rto();
 
 
 
@@ -98,7 +108,7 @@ void initialize_semaphores();
 /* Daemon service*/
 int main(int argc, char *argv[]) 
 {
-
+	initialize_rto();
   //***************Fork and connect to delta timer ***************************/
   
   int pid;
@@ -415,6 +425,9 @@ void* local_send(void *arg)
       pthread_mutex_lock(&mutex);
 
       pdu * ptr = (pdu*)cb->buffer[sw->tail];
+      
+      //add timestamp;
+      add_ts_chksum(ptr);
       //send a pdu
       printf("Sending pack...#%i\n", ptr->h.seq_num);
       local_sent = sendto(r_sockfd, ptr, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
@@ -524,16 +537,21 @@ void* remote_listen(void *arg)
 	      sw = &sw_r;
 	      
 	      //send ack		  
-		  if(p.h.seq_num - sw->head_sequence_num <= 20){
-	      pdu ack_p;
-	      memset(&ack_p, 0x00, sizeof(pdu));
-	      build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);	      
+	      if(p.h.seq_num - sw->head_sequence_num <= 20){
+		pdu ack_p;
+		memset(&ack_p, 0x00, sizeof(pdu));
+		ack_p.h.tsopt = p.h.tsopt;
+		build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);
+		add_checksum(&ack_p);
+		//copy timestamp and return tser
+		
+	      
 	      //set_ack_addr(&return_addr, &return_len, R_PORT) ; 
-		  set_ack_addr(&return_addr, &return_len, T_PORT) ; 
-	      printf("Received seq#%i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.ack_num, ack_p.h.chk);
+	      set_ack_addr(&return_addr, &return_len, T_PORT) ; 
+	      printf("Received seq#%i. TSOP = %i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.tsopt, ack_p.h.ack_num, ack_p.h.chk);
 	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len);  
-	      				
-				//ensure this isn't a duplicate
+	      
+	      //ensure this isn't a duplicate
       	      if ((markPDURecv(p.h.seq_num, sw, cb))==0)
 			{
 				sem_wait(&cbr_empty);  
@@ -631,9 +649,25 @@ void* remote_send(void *arg)
 		pthread_mutex_unlock(&rmutex);
     }
 }
+// adds timestamp + checksum
+void add_ts_chksum(pdu *p)
+{
+  add_timestamp(p);
+  add_checksum(p);
+}
 
+// add timestamp
+void add_timestamp(pdu *p)
+{
+  gettimeofday(&timestamp, NULL);
+  p->h.tsopt = (timestamp.tv_sec - baseline)*1000 + timestamp.tv_usec/1000;
+}
 
-
+// assumes 0 value for checksum
+void add_checksum(pdu *p)
+{
+   p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
+}
 /* Builds pdu from buffer
  */
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
@@ -657,10 +691,17 @@ void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
       perror("TCPD: error building pdu Must be ACK or SEQ.");
       exit(1);
     }
-  
-  p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
 }
-  
+ 
+ 
+void initialize_rto()
+{	
+	gettimeofday(&timestamp, NULL);
+	baseline = timestamp.tv_sec;
+	rto = 200; 
+	m = 50; 
+	srtt = 50 >> 1;
+  }
 void initialize_semaphores()
 {
   // initialize cb semaphores
