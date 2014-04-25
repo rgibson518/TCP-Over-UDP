@@ -1,6 +1,6 @@
 /*
-Buffer being used incorrectly.  should be sending as many as possible from after the tail.  the head is the lower index
-should receive acks and progress head, send pdu's and progress tail
+  Buffer being used incorrectly.  should be sending as many as possible from after the tail.  the head is the lower index
+  should receive acks and progress head, send pdu's and progress tail
 */
 
 
@@ -38,7 +38,7 @@ should receive acks and progress head, send pdu's and progress tail
 uint32_t ack = 0;
 
 // rto stuff
-int m, srtt, rttvar, err;
+int rto, srtt, rttvar, err;
 int g = 3;
 int h = 2; 
 time_t baseline; 
@@ -90,6 +90,9 @@ void* remote_listen(void *);
 void* remote_send(void *);
 void* listen_to_timer_socket(void *);
 
+// rto methods
+void update_rto(suseconds_t m);
+
 
 //pdu methods
 void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen);
@@ -108,129 +111,129 @@ void initialize_rto();
 /* Daemon service*/
 int main(int argc, char *argv[]) 
 {
-	initialize_rto();
+  initialize_rto();
   //***************Fork and connect to delta timer ***************************/
   
-  int pid;
-  int count = 0;
-  char *argv2[] = { NULL };
-  char *newarg[] = {"./dt", NULL};
+    int pid;
+    int count = 0;
+    char *argv2[] = { NULL };
+    char *newarg[] = {"./dt", NULL};
   
   
-  circular_buffer *cb = &cb_r;
-  sliding_window* sw = &sw_r;
+    circular_buffer *cb = &cb_r;
+    sliding_window* sw = &sw_r;
   
-  // initialize send buffer and window
-  cb_init(cb);
-  sw_init(sw, cb);
+    // initialize send buffer and window
+    cb_init(cb);
+    sw_init(sw, cb);
   
-  pid = fork();
-  if (pid == 0){
+    pid = fork();
+    if (pid == 0){
     
-    if ( execve("./dt", newarg, argv2) )
-      {
-	printf("execv failed with error %d %s\n",errno,strerror(errno));
-	return 254;  
-      }
+      if ( execve("./dt", newarg, argv2) )
+	{
+	  printf("execv failed with error %d %s\n",errno,strerror(errno));
+	  return 254;  
+	}
     
-  }
+    }
   
-  sleep(1);
-  char str[100];
+    sleep(1);
+    char str[100];
   
-  if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
-    perror("socket");
-    exit(1);
-  }
+    if ((dt_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+      perror("socket");
+      exit(1);
+    }
   
-  printf("Trying to connect to timer...\n");
+    printf("Trying to connect to timer...\n");
   
-  remote.sun_family = AF_UNIX;
-  strcpy(remote.sun_path, "mysocket2");
-  len = strlen(remote.sun_path) + sizeof(remote.sun_family);
-  if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
-    perror("connect");
-    exit(1);
-  }
+    remote.sun_family = AF_UNIX;
+    strcpy(remote.sun_path, "mysocket2");
+    len = strlen(remote.sun_path) + sizeof(remote.sun_family);
+    if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
+      perror("connect");
+      exit(1);
+    }
   
-  printf("Connected to timer.\n");
-  /*int n = recv(dt_sockfd, str, 100, 0);
-  n = atoi(str);
-  printf("%i",n);*/
-  
-  
-  /*As of now, this is setting up a thread to listen to the socket on 
-    dt_sockfd.  We need to make that listening occur somewhere in one of
-    our existing threads, or make the thread that is created here interact with
-    them somehow.  this thread receives messages identifying which 
-    packets have timed outs*/
-  int i = 0;
-  int thread_id;
-  thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
-  i++;
+    printf("Connected to timer.\n");
+    /*int n = recv(dt_sockfd, str, 100, 0);
+      n = atoi(str);
+      printf("%i",n);*/
   
   
-  //*****************************END OF CONNECTING TO DELTA TIMER***************
+    /*As of now, this is setting up a thread to listen to the socket on 
+      dt_sockfd.  We need to make that listening occur somewhere in one of
+      our existing threads, or make the thread that is created here interact with
+      them somehow.  this thread receives messages identifying which 
+      packets have timed outs*/
+    int i = 0;
+    int thread_id;
+    thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
+    i++;
+  
+  
+    //*****************************END OF CONNECTING TO DELTA TIMER***************
       
       
       
-      fd_set read_fd_set;
+	fd_set read_fd_set;
   
-  struct sockaddr_in local_addr;
-  int local_len;			
+    struct sockaddr_in local_addr;
+    int local_len;			
   
-  struct sockaddr_in remote_addr;		
-  int remote_len;	
+    struct sockaddr_in remote_addr;		
+    int remote_len;	
   
  
-  initialize_semaphores();
+    initialize_semaphores();
     
-  /* create local and remote sockets */
-  l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
-  r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
+    /* create local and remote sockets */
+      l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
+      r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
   
   
-  int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
-  if (l_thread != 0)
-    {
-      printf("Error creating local listener#%i\n",i);
-      exit(1);
-    }
-  i++;
-  int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
-  if (ls_thread != 0)
-    {
-      printf("Error creating local sender#%i\n",i);
-      exit(1);
-    }
-  i++;
-  int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
-  if (r_thread != 0)
-    {
-      printf("Error creating remote listener #%i\n",i);
-      exit(1);
-    }
-    i++;
-  int rp_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
-  if (rp_thread != 0)
-    {
-      printf("Error creating remote listener #%i\n",i);
-      exit(1);
-    }
-  
-  //wait for any Timeouts
-  //join back together threads
-  int j;
-  for (j = 0;j < NUM_THREADS; j++) 
-    {
-      i = pthread_join(tid[j],NULL);
-      if (i!=0)
+      int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
+      if (l_thread != 0)
 	{
-	  printf("Error: unable to join thread");
+	  printf("Error creating local listener#%i\n",i);
 	  exit(1);
-	} 
-    }
-  printf("Threads joined.\n");
+	}
+      i++;
+      int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
+      if (ls_thread != 0)
+	{
+	  printf("Error creating local sender#%i\n",i);
+	  exit(1);
+	}
+      i++;
+      int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
+      if (r_thread != 0)
+	{
+	  printf("Error creating remote listener #%i\n",i);
+	  exit(1);
+	}
+      i++;
+      int rp_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
+      if (rp_thread != 0)
+	{
+	  printf("Error creating remote listener #%i\n",i);
+	  exit(1);
+	}
+  
+      //wait for any Timeouts
+      //join back together threads
+      int j;
+      for (j = 0;j < NUM_THREADS; j++) 
+	{
+	  i = pthread_join(tid[j],NULL);
+	  if (i!=0)
+	    {
+	      printf("Error: unable to join thread");
+	      exit(1);
+	    } 
+	}
+      printf("Threads joined.\n");
 }
 
 
@@ -295,38 +298,38 @@ void set_fwd_addr(struct sockaddr_in*f_addr, int* f_addrlen, int port)
 
 
 /*Listens to socket to make connection with delta timer
-*/
+ */
 
 void* listen_to_timer_socket(void *arg){
-	int mode;
-	int sequence, rc;
-	unsigned int t, port, packet, duration;
-	char str[100];
-	ssize_t pdu_resent = 0;
-	int fwd_len;
-	struct sockaddr_in fwd_addr;
-	unsigned int send_check;
-	set_fwd_addr(&fwd_addr, &fwd_len, T_PORT);
-	circular_buffer *cb = &cb_s;
+  int mode;
+  int sequence, rc;
+  unsigned int t, port, packet, duration;
+  char str[100];
+  ssize_t pdu_resent = 0;
+  int fwd_len;
+  struct sockaddr_in fwd_addr;
+  unsigned int send_check;
+  set_fwd_addr(&fwd_addr, &fwd_len, T_PORT);
+  circular_buffer *cb = &cb_s;
 	
-	while(1){
-		if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
-			sequence = atoi(str);
-			printf("timeout received : %i", sequence);
+  while(1){
+    if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
+      sequence = atoi(str);
+      printf("timeout received : %i", sequence);
 
-			//take the packet number modded with the size of buffer
-			//resend the packet in that position
-			sequence = sequence % BUFFER_SIZE;
-			pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
-			//set a new timer for pdu
-			sprintf(str, "1 %i %i", sequence, 60);
-			send_check = send(dt_sockfd, str, 100, 0);
-			} else {
-				if (t < 0) perror("recv");
-				else printf("Server closed connection\n");
-				exit(1);
-			}
-		}
+      //take the packet number modded with the size of buffer
+      //resend the packet in that position
+      sequence = sequence % BUFFER_SIZE;
+      pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+      //set a new timer for pdu
+      sprintf(str, "1 %i %i", sequence, 60);
+      send_check = send(dt_sockfd, str, 100, 0);
+    } else {
+      if (t < 0) perror("recv");
+      else printf("Server closed connection\n");
+      exit(1);
+    }
+  }
 }
 
 /* Listens for incoming local traffic
@@ -380,7 +383,7 @@ void* local_listen(void *arg)
       pthread_mutex_lock(&mutex);
       printf("Adding to buffer seq#%i\n", seq-1);
       add_to_buffer(sw, cb, &p);
-	  // signal pdu has been put in buffer
+      // signal pdu has been put in buffer
       sem_post(&cb_full);
       // exit cirital sectio
       pthread_mutex_unlock(&mutex);    
@@ -409,7 +412,7 @@ void* local_send(void *arg)
   circular_buffer *cb = &cb_s;
   sliding_window *sw = &sw_s;
   
-   //set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
+  //set_fwd_addr(&fwd_addr, &fwd_len, R_PORT);
   set_fwd_addr(&fwd_addr, &fwd_len, T_PORT);
   
   while (1)
@@ -417,13 +420,13 @@ void* local_send(void *arg)
       // wait for pdu's to enter buffer
       printf("Waiting for packets to send\n");
       sem_wait(&cb_full);
-
+      
       // wait for window to have contents
       sem_wait(&sw_empty);
       
       // enter critical section
       pthread_mutex_lock(&mutex);
-
+      
       pdu * ptr = (pdu*)cb->buffer[sw->tail];
       
       //add timestamp;
@@ -437,10 +440,10 @@ void* local_send(void *arg)
       
       //START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT  
 		
-		seq = ptr->h.seq_num;
-	  sprintf(str, "1 %i %i", seq, 70);
+      seq = ptr->h.seq_num;
+      sprintf(str, "1 %i %i", seq, rto);
 	  
-	  send_check = send(dt_sockfd, str, 100, 0);
+      send_check = send(dt_sockfd, str, 100, 0);
       
       
       
@@ -448,7 +451,7 @@ void* local_send(void *arg)
       progress_window_tail(sw,cb);
       sw->count++;
       
-	  // let remote know it can listen for an ack
+      // let remote know it can listen for an ack
       sem_post(&sw_full);
 	  
       //exit critical section
@@ -459,11 +462,11 @@ void* local_send(void *arg)
 
 /* Listens on incoming remote traffic
    and ack's pdu's 
- */
+*/
 void* remote_listen(void *arg)
 {
-    printf("Remote listen created.\n");
-  
+  printf("Remote listen created.\n");
+  struct timeval r_time;
   char remote_buf[MAX_MES_LEN];
   uint32_t remote_buflen;
   struct sockaddr_in recv_addr;
@@ -517,10 +520,14 @@ void* remote_listen(void *arg)
 	      if ((markPDUAcked(ack_seq, sw, cb)) ==0)
 		{
 		  printf("ACK is genuine.\n");
-		    
 		  
-		    sprintf(str, "2 %i 1", ack_seq);
-		    send_check = send(dt_sockfd, str, 100, 0);
+		  //calculate rtt
+		  gettimeofday(&r_time, NULL);
+		  suseconds_t curr_time = (r_time.tv_sec - baseline)*1000 + r_time.tv_usec/1000;
+		  update_rto(curr_time-p.h.tsopt);
+		  
+		  sprintf(str, "2 %i 1", ack_seq);
+		  send_check = send(dt_sockfd, str, 100, 0);
 		
 		  //progress heads and signal window slide
 		  sem_wait(&sw_full);//Maybe comment this out
@@ -540,41 +547,42 @@ void* remote_listen(void *arg)
 	      if(p.h.seq_num - sw->head_sequence_num <= 20){
 		pdu ack_p;
 		memset(&ack_p, 0x00, sizeof(pdu));
+		
+		//copy timestamp and return tser
 		ack_p.h.tsopt = p.h.tsopt;
 		build_pdu(&ack_p, NULL, &p.h.seq_num, NULL, 0);
 		add_checksum(&ack_p);
-		//copy timestamp and return tser
 		
 	      
-	      //set_ack_addr(&return_addr, &return_len, R_PORT) ; 
-	      set_ack_addr(&return_addr, &return_len, T_PORT) ; 
-	      printf("Received seq#%i. TSOP = %i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.tsopt, ack_p.h.ack_num, ack_p.h.chk);
-	      remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len);  
+		//set_ack_addr(&return_addr, &return_len, R_PORT) ; 
+		set_ack_addr(&return_addr, &return_len, T_PORT) ; 
+		printf("Received seq#%i. TSOP = %i.  Sending ack%i\t Checksum = %i\n",p.h.seq_num, ack_p.h.tsopt, ack_p.h.ack_num, ack_p.h.chk);
+		remote_sent = sendto(r_sockfd, (char*)&ack_p, MAX_MES_LEN,  0, (struct sockaddr *)&return_addr, return_len);  
 	      
-	      //ensure this isn't a duplicate
-      	      if ((markPDURecv(p.h.seq_num, sw, cb))==0)
-			{
-				sem_wait(&cbr_empty);  
-				// enter critical section
-				// printf("waiting on mutex\n");
-				pthread_mutex_lock(&rmutex);
-				//printf("Packet is genuine.\n");
+		//ensure this isn't a duplicate
+		if ((markPDURecv(p.h.seq_num, sw, cb))==0)
+		  {
+		    sem_wait(&cbr_empty);  
+		    // enter critical section
+		    // printf("waiting on mutex\n");
+		    pthread_mutex_lock(&rmutex);
+		    //printf("Packet is genuine.\n");
 		  
-				// ensure open slot in window and buffer
-				//sem_wait(&swr_empty);	
+		    // ensure open slot in window and buffer
+		    //sem_wait(&swr_empty);	
 
 		  
-				printf("Adding to receive buffer.\n");
-				add_to_r_buffer(sw, cb, &p);
-				sem_post(&cbr_full);
-				// exit critical section
-				pthread_mutex_unlock(&rmutex);
-				//sem_post(&swr_full);
-			}
-	      else 
-			{
-			printf("\t\t\tPACK SKIPPED %i\n", p.h.seq_num);
-			}
+		    printf("Adding to receive buffer.\n");
+		    add_to_r_buffer(sw, cb, &p);
+		    sem_post(&cbr_full);
+		    // exit critical section
+		    pthread_mutex_unlock(&rmutex);
+		    //sem_post(&swr_full);
+		  }
+		else 
+		  {
+		    printf("\t\t\tPACK SKIPPED %i\n", p.h.seq_num);
+		  }
 
 	      }
 	    }
@@ -609,44 +617,44 @@ void* remote_send(void *arg)
   
   while (1)
     {  
-		// wait for window to have contents (waiting on buffer full sem should be redundant here)
-		/*changed to cbr, thinking that the while check below will be ensuring that the
-		window has valid contents before trying to read them in, and in the remote receive function,
-		we might be adding a pdu into the buffer that is not necessarily going into the window, so, I
-		did not want to post to the window sem there*/
+      // wait for window to have contents (waiting on buffer full sem should be redundant here)
+      /*changed to cbr, thinking that the while check below will be ensuring that the
+	window has valid contents before trying to read them in, and in the remote receive function,
+	we might be adding a pdu into the buffer that is not necessarily going into the window, so, I
+	did not want to post to the window sem there*/
 
-		printf("Waiting cbr_full\n");
-		sem_wait(&cbr_full);
-		printf("Waiting on mutex\n");
-		pthread_mutex_lock(&rmutex);
-		printf("\t\t\tGOT HERE :  %i\n",sw->packet_acks[sw->head]);
-		if(sw->packet_acks[sw->head]==ACKED)
-		{
+      printf("Waiting cbr_full\n");
+      sem_wait(&cbr_full);
+      printf("Waiting on mutex\n");
+      pthread_mutex_lock(&rmutex);
+      printf("\t\t\tGOT HERE :  %i\n",sw->packet_acks[sw->head]);
+      if(sw->packet_acks[sw->head]==ACKED)
+	{
 
-			// enter critical section
-			printf("\t\t\tAND HERE\n");
+	  // enter critical section
+	  printf("\t\t\tAND HERE\n");
 		
-			pdu * ptr = (pdu*)cb->buffer[sw->head];
-			//send a pdu
-			printf("Reading pack...#%i\n", ptr->h.seq_num);
-			local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
+	  pdu * ptr = (pdu*)cb->buffer[sw->head];
+	  //send a pdu
+	  printf("Reading pack...#%i\n", ptr->h.seq_num);
+	  local_sent = sendto(l_sockfd, ptr->data, PAYLOAD, 0, (struct sockaddr *)&fwd_addr, fwd_len);
 		
-			sw->packet_acks[sw->head]= UNACKED;
+	  sw->packet_acks[sw->head]= UNACKED;
 	  
-			//progress_heads(sw, cb);
-			sw->head = (sw->head +1)%64;
-			sw->head_sequence_num ++;
-			progress_window_tail(sw, cb);
+	  //progress_heads(sw, cb);
+	  sw->head = (sw->head +1)%64;
+	  sw->head_sequence_num ++;
+	  progress_window_tail(sw, cb);
 	  
-			printf("sw->head% i\n",sw->head);
-			// printf("Adding space to sw\n");
-			//sw->count--;
-			cb->count--;
-			//sem_post(&swr_empty);
-			sem_post(&cbr_empty);
-		}
-		else sem_post(&cbr_full);
-		pthread_mutex_unlock(&rmutex);
+	  printf("sw->head% i\n",sw->head);
+	  // printf("Adding space to sw\n");
+	  //sw->count--;
+	  cb->count--;
+	  //sem_post(&swr_empty);
+	  sem_post(&cbr_empty);
+	}
+      else sem_post(&cbr_full);
+      pthread_mutex_unlock(&rmutex);
     }
 }
 // adds timestamp + checksum
@@ -666,7 +674,7 @@ void add_timestamp(pdu *p)
 // assumes 0 value for checksum
 void add_checksum(pdu *p)
 {
-   p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
+  p->h.chk = calc_checksum((char*)p, MAX_MES_LEN);
 }
 /* Builds pdu from buffer
  */
@@ -696,12 +704,22 @@ void build_pdu(pdu* p, uint32_t* seq, uint32_t* ack, char* buf, ssize_t buflen)
  
 void initialize_rto()
 {	
-	gettimeofday(&timestamp, NULL);
-	baseline = timestamp.tv_sec;
-	rto = 200; 
-	m = 50; 
-	srtt = 50 >> 1;
-  }
+  gettimeofday(&timestamp, NULL);
+  baseline = timestamp.tv_sec;
+  rto = 1000;
+  srtt = 0;
+}
+
+// m = time received - tser
+void update_rto(suseconds_t m)
+{
+  err  = m - srtt;
+  srtt+= err>>g;
+  rttvar+= (abs(err) - rttvar)>>h;
+  rto = srtt + (rttvar << h);
+  printf("&&&&&&&&&& RTO = %i &&&&&&&&&&\n", rto);
+}
+
 void initialize_semaphores()
 {
   // initialize cb semaphores
@@ -715,6 +733,7 @@ void initialize_semaphores()
     perror("Error: unable to create semaphore");
     exit(1);
   }
+  
   
   // initialize sw semaphores
   i = sem_init(&sw_full, 0, 0);
