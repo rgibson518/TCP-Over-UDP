@@ -221,19 +221,24 @@ void* listen_to_timer_socket(void *arg){
   unsigned int send_check;
   set_fwd_addr(&fwd_addr, &fwd_len, T_PORT);
   circular_buffer *cb = &cb_s;
+  sliding_window *sw = &sw_s;
 	
   while(1){
     if ((t=recv(dt_sockfd, str, 100, 0)) > 0) {
-      sequence = atoi(str);
-      printf("timeout received : %i", sequence);
+		sequence = atoi(str);
+		if (sequence >= sw->head_sequence_num){
+		printf("timeout received : %i", sequence);
       
-      //take the packet number modded with the size of buffer
-      //resend the packet in that position
-      sequence = sequence % BUFFER_SIZE;
-      pdu_resent = sendto(r_sockfd, cb->buffer[sequence], MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);
-      //set a new timer for pdu
-      sprintf(str, "1 %i %i", sequence, rto);
-      send_check = send(dt_sockfd, str, 100, 0);
+	  
+		//take the packet number modded with the size of buffer
+		//resend the packet in that position
+		pdu * ptr = (pdu*)cb->buffer[sequence%64];
+		ptr->h.chk = 0;
+		add_ts_chksum(ptr);
+		pdu_resent = sendto(r_sockfd, ptr, MAX_MES_LEN, 0, (struct sockaddr *)&fwd_addr, fwd_len);      //set a new timer for pdu
+		sprintf(str, "1 %i %i", sequence, rto);
+		send_check = send(dt_sockfd, str, 100, 0);
+	  }
     } else {
       if (t < 0) perror("recv");
       else printf("Server closed connection\n");
@@ -299,9 +304,6 @@ void* local_listen(void *arg)
       
       // signal pdu has been put in buffer
       sem_post(&cb_full);
-      
-
-
     }
 }
 
@@ -356,10 +358,10 @@ void* local_send(void *arg)
       //START PACKET TRANSMISSION TIMER  ONLY IF IN CLIENT  
 		
       seq = ptr->h.seq_num;
-      sprintf(str, "1 %i %i", seq, rto*1000);
+      sprintf(str, "1 %i %i", seq, rto);
 	  
       printf("LS: sending timer\n");
-      //send_check = send(dt_sockfd, str, 100 , 0);
+      send_check = send(dt_sockfd, str, 100 , 0);
       printf("LS: timer sent.\n");
       // extend tail of the window
       progress_window_tail(sw,cb);
@@ -504,8 +506,8 @@ void* remote_listen(void *arg)
       
       else 
 	{
-	  perror("Checksums did not match\n");
-	  exit(1);
+	  printf("Checksums did not match\n");
+	  //exit(1);
 	}
     }
 }
@@ -703,7 +705,7 @@ void initialize_delta_timer()
   printf("Trying to connect to timer...\n");
   
   remote.sun_family = AF_UNIX;
-  strcpy(remote.sun_path, "mysocket2");
+  strcpy(remote.sun_path, "mysocket");
   len = strlen(remote.sun_path) + sizeof(remote.sun_family);
   if (connect(dt_sockfd, (struct sockaddr *)&remote, len) == -1) {
     perror("connect");

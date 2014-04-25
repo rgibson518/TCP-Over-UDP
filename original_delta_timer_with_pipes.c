@@ -288,7 +288,7 @@ int main(int argc, char *argv[])
 	s = socket(AF_UNIX, SOCK_STREAM, 0);
 	
 	local.sun_family = AF_UNIX;
-	strcpy(local.sun_path, "mysocket2");
+	strcpy(local.sun_path, "mysocket");
 	unlink(local.sun_path);
 	len = strlen(local.sun_path) + sizeof(local.sun_family);
 	bind(s, (struct sockaddr *)&local, len);

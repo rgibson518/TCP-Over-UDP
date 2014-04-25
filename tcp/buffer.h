@@ -43,7 +43,7 @@ typedef struct sliding_window
     unsigned int capacity;
     
     // tracks ack'd packets with 1, unack'd with 0 : Use ACKED/UNACKED
-    int packet_acks[20];
+    int packet_acks[64];
     int r_packet_acks[64];
 } sliding_window;
 
@@ -86,7 +86,7 @@ void sw_init(sliding_window *win, circular_buffer *cb)
     win->capacity = 20;
     win->head_sequence_num = 0;
     win->packet_acks_head_index=0;
-    for (i = 0; i < 20; i++)
+    for (i = 0; i < 64; i++)
     {
 	win->packet_acks[i] = 0;
     }
@@ -101,7 +101,7 @@ void sw_init(sliding_window *win, circular_buffer *cb)
  */
 int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
 {
-    
+    /*
     int pdu_index_in_window = seqNumber - sw->head_sequence_num;
     if (sw->packet_acks[pdu_index_in_window] == ACKED)
     {
@@ -110,6 +110,19 @@ int markPDUAcked(int seqNumber, sliding_window *sw, circular_buffer *cb)
     else
     {
 	sw->packet_acks[pdu_index_in_window] = ACKED;
+	return 0;
+    }*/
+	
+	int pos = seqNumber%cb->capacity;
+    //int head = (sw->tail+cb->capacity - 20)%cb->capacity;
+    int head = sw->head;
+    //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
+    // if duplicate ack
+	if(seqNumber < sw->head_sequence_num) return -1;
+    //Need to use index of head in ack
+    if (sw->packet_acks[pos]==ACKED) return -1;
+    else{
+	sw->packet_acks[pos] = ACKED;
 	return 0;
     }
     /*
@@ -140,6 +153,7 @@ int markPDURecv(int seqNumber, sliding_window *sw, circular_buffer *cb)
     int head = sw->head;
     //printf("Acking packet at window index:\t%i\n", pdu_index_in_window);
     // if duplicate ack
+	if(seqNumber < sw->head_sequence_num) return -1;
     //Need to use index of head in ack
     if (sw->r_packet_acks[pos]==1) return -1;
     else{
@@ -201,23 +215,25 @@ int markPDURecv(int seqNumber, sliding_window *sw, circular_buffer *cb)
 void update_window(sliding_window *sw, circular_buffer *cb, sem_t* sw_sem, sem_t* cb_sem)
 {
     unsigned int initial_window_count = sw->count;
-    int i = 0;
-    int frame_acked = sw->packet_acks[0];
+    int i = sw->head_sequence_num % 64;
+	int j=0;
+    int frame_acked = sw->packet_acks[i];
     
-    while (i < initial_window_count && frame_acked == 1  && sw->head != sw->tail)
+    while (j < initial_window_count && frame_acked == 1  && sw->head != sw->tail)
     {
 	
 	progress_heads(sw, cb);
 	sw->count --;
 	cb->count --;
 	sw->packet_acks[i] = 0;
-	i++;
+	i = (i++)%64;
+	j++;
 	
 	// cb_empty
 	sem_post(cb_sem);
 	// sw_empty
 	sem_post(sw_sem);
-	if (i < 20){
+	if (j < 20){
 	    frame_acked = sw->packet_acks[i];	
 	}
     }
