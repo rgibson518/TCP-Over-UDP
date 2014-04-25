@@ -81,7 +81,7 @@ void set_fwd_addr( struct sockaddr_in* f_addr, int* f_addrlen,
 		   );
 void set_ack_addr( struct sockaddr_in* f_addr, int* f_addrlen,
 		   int port
-		   );
+ 		   );
 
 // thread methods
 void* local_listen(void *);
@@ -104,6 +104,8 @@ void add_checksum(pdu *p);
 void initialize_semaphores();
 void initialize_rto();
 void initialize_delta_timer();
+void initialize_buffers();
+void start_threads();
 
 
 
@@ -117,70 +119,25 @@ int main(int argc, char *argv[])
   initialize_rto();
   initialize_delta_timer();
   initialize_semaphores();
-  
-  // initialize send buffers and windows
-  circular_buffer *cb = &cb_r;
-  sliding_window* sw = &sw_r;
-  cb_init(cb);
-  sw_init(sw, cb);
-  
-  cb = cb_s;
-  sw= sw_s;
-  cb_init(cb);
-  sw_init(sw,cb);
-  
-  
+  initialize_buffers();
+
+  /* create local and remote sockets */
   struct sockaddr_in local_addr;
   int local_len;
-  struct sockaddr_in remote_addr;		
-  int remote_len;	
+  struct sockaddr_in remote_addr;
+  int remote_len;
   l_sockfd = setup_socket(&local_addr, &local_len, L_PORT);
   r_sockfd = setup_socket(&remote_addr, &remote_len, R_PORT);
   
-  
-  /* create local and remote sockets */
-  
-  int i = 0;
-  int thread_id;
-  thread_id = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
-  i++;
-  
-  
-  int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
-  if (l_thread != 0)
-    {
-      printf("Error creating local listener#%i\n",i);
-      exit(1);
-    }
-  i++;
-  int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
-  if (ls_thread != 0)
-    {
-      printf("Error creating local sender#%i\n",i);
-      exit(1);
-    }
-  i++;
-  int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
-  if (r_thread != 0)
-    {
-      printf("Error creating remote listener #%i\n",i);
-      exit(1);
-    }
-  i++;
-  int rs_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
-  if (rs_thread != 0)
-    {
-      printf("Error creating remote listener #%i\n",i);
-      exit(1);
-    }
+  start_threads();
   
   //wait for any Timeouts
   //join back together threads
-  int j;
-  for (j = 0;j < NUM_THREADS; j++) 
+  int i, j;
+  for (i = 0;i < NUM_THREADS; j++) 
     {
-      i = pthread_join(tid[j],NULL);
-      if (i!=0)
+      int j = pthread_join(tid[j],NULL);
+      if (j!=0)
 	{
 	  printf("Error: unable to join thread");
 	  exit(1);
@@ -742,7 +699,7 @@ void initialize_delta_timer()
     if ( execve("./dt", newarg, argv2) )
       {
 	printf("execv failed with error %d %s\n",errno,strerror(errno));
-	return 254;  
+	exit(1);  
       }
     
   }
@@ -774,9 +731,64 @@ void initialize_delta_timer()
   
   
   /*As of now, this is setting up a thread to listen to the socket on 
-      dt_sockfd.  We need to make that listening occur somewhere in one of
-      our existing threads, or make the thread that is created here interact with
-      them somehow.  this thread receives messages identifying which 
-      packets have timed outs*/
+    dt_sockfd.  We need to make that listening occur somewhere in one of
+    our existing threads, or make the thread that is created here interact with
+    them somehow.  this thread receives messages identifying which 
+    packets have timed outs*/
   
+}
+
+
+void start_threads()
+{
+  int i = 0;
+  int t_thread  = pthread_create(&tid[i], NULL, listen_to_timer_socket, NULL);
+  if (t_thread != 0)
+    {
+      printf("Error creating local listener#%i\n",i);
+      exit(1);
+    }
+  i++;
+  int l_thread = pthread_create(&tid[i], NULL, local_listen, NULL); 
+  if (l_thread != 0)
+    {
+      printf("Error creating local listener#%i\n",i);
+      exit(1);
+    }
+  i++;
+  int ls_thread = pthread_create(&tid[i], NULL, local_send, NULL); 
+  if (ls_thread != 0)
+    {
+      printf("Error creating local sender#%i\n",i);
+      exit(1);
+    }
+  i++;
+  int r_thread = pthread_create(&tid[i], NULL, remote_listen, NULL); 
+  if (r_thread != 0)
+    {
+      printf("Error creating remote listener #%i\n",i);
+      exit(1);
+    }
+  i++;
+  int rs_thread = pthread_create(&tid[i], NULL, remote_send, NULL); 
+  if (rs_thread != 0)
+    {
+      printf("Error creating remote listener #%i\n",i);
+      exit(1);
+    }
+}
+
+void initialize_buffers()
+{
+  circular_buffer *cb = &cb_r;
+  sliding_window* sw = &sw_r;
+  
+  cb_init(cb);
+  sw_init(sw, cb);
+  
+  cb = &cb_s;
+  sw= &sw_s;
+  
+  cb_init(cb);
+  sw_init(sw,cb);
 }
